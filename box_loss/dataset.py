@@ -35,7 +35,11 @@ class chestX(Dataset):
         label = self.boxes[idx]["category_id"]
         id = idx+1
         if id in selected_list:
-            bbox = self.boxes[idx]["bbox"]
+            bbox_loc = self.boxes[idx]["bbox"]
+            bbox = torch.zeros_like(image)
+            for x in range(bbox_loc[0], bbox_loc[0]+bbox_loc[2]):
+                for y in range(bbox_loc[1], bbox_loc[1]+bbox_loc[3]):
+                    bbox[x][y] = 1
         else:
             bbox = None
         return (image, label, bbox, id)

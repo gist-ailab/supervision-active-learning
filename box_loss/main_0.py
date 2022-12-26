@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import MultiStepLR
 import torchvision.transforms as transforms
 import torchvision.models as models
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 from resnet import *
 import argparse
@@ -25,6 +26,7 @@ parser.add_argument('--dataset', type=str, choices=['cifar10', 'stl10'], default
 parser.add_argument('--query_algorithm', type=str, choices=['loss'], default='loss')
 parser.add_argument('--addendum', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=32)
+parser.add_argument('--lr', type=float, default=0.01)
 
 args = parser.parse_args()
 
@@ -42,4 +44,16 @@ else:
     save_path = os.path.join(args.save_path, 'current', args.query_algorithm)
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
+    
+if __name__ == "__main__":
+    selected = []
+    trainset = chestX(args.data_path, 'train', selected)
+    testset = chestX(args.data_path, 'test', [])
+    trainloader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True)
+    testloader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False)
+    
+    model = ResNet18()
+    model.to(device)
+    optimizer = optim.SGD(model.parameters(), lr=args.lr)
+    classif_loss = nn.CrossEntropyLoss()
     
