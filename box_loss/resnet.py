@@ -95,16 +95,67 @@ class ResNet(nn.Module):
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.layer1(out)
+        feat1 = out.clone()
         out = self.layer2(out)
+        feat2 = out.clone()
         out = self.layer3(out)
+        feat3 = out.clone()
         out = self.layer4(out)
+        feat4 = out
         
         # size = out.shape[-1]
         # out = F.avg_pool2d(out, size)
         # out = out.view(out.size(0), -1)
         # out = self.linear(out)
+        # return out
+        return feat4
+
+class Decoder(nn.Module):
+    def __init__(self, output_size=256):
+        super(ResNet, self).__init__()
+        self.in_planes = 512
+
+        self.layer1 = nn.Conv2d(512,256,kernel_size=1,stride=1)
+        self.layer2 = nn.Conv2d(256,128,kernel_size=1,stride=1)
+        self.layer3 = nn.Conv2d(128,64,kernel_size=1,stride=1)
+        self.layer4 = nn.Conv2d(64,16,kernel_size=1,stride=1)
+        self.layer4 = nn.Conv2d(16,1,kernel_size=1,stride=1)
+        
+        self.upspl1 = nn.Upsample(size=[16,16])
+        self.upspl2 = nn.Upsample(size=[64,64])
+        self.upspl3 = nn.Upsample(size=[128,128])
+        self.upspl4 = nn.Upsample(size=[output_size,output_size])
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes / block.expansion
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        out = self.layer1(x)
+        out = self.upspl1(out)
+        out = self.layer2(out)
+        out = self.upspl2(out)
+        out = self.layer3(out)
+        out = self.upspl3(out)
+        out = self.layer4(out)
+        out = self.upspl4(out)
+        out = self.layer5(out)
         return out
 
+class Linear(nn.Module):
+    def __init__(self, num_classes=10):
+        self.linear = nn.Linear(512, num_classes)
+    
+    def forward(self, x):
+        size = x.shape[-1]
+        out = F.avg_pool2d(x, size)
+        out = out.view(out.size(0), -1)
+        out = self.linear(out)
+        return out
 
 def ResNet18():
     return ResNet(BasicBlock, [2, 2, 2, 2])
@@ -126,7 +177,3 @@ def ResNet152():
     return ResNet(Bottleneck, [3, 8, 36, 3])
 
 
-def test():
-    net = ResNet18()
-    y = net(torch.randn(1, 3, 32, 32))
-    print(y.size())

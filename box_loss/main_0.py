@@ -26,7 +26,7 @@ parser.add_argument('--dataset', type=str, choices=['cifar10', 'stl10'], default
 parser.add_argument('--query_algorithm', type=str, choices=['loss'], default='loss')
 parser.add_argument('--addendum', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=32)
-parser.add_argument('--lr', type=float, default=0.01)
+parser.add_argument('--lr', type=float, default=0.001)
 
 args = parser.parse_args()
 
@@ -53,7 +53,15 @@ if __name__ == "__main__":
     testloader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False)
     
     model = ResNet18()
-    model.to(device)
-    optimizer = optim.SGD(model.parameters(), lr=args.lr)
-    classif_loss = nn.CrossEntropyLoss()
+    Linear = Linear(num_classes=10)
+    Decoder = Decoder(output_size=256)
+    model = model.to(device)
+    Linear = Linear.to(device)
+    Decoder = Decoder.to(device)
     
+    model_optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    Linear_optimizer = optim.Adam(Linear.parameters(), lr=args.lr)
+    Decoder_optimizer = optim.Adam(Decoder.parameters(), lr=args.lr)
+    
+    classif_loss = nn.CrossEntropyLoss()
+    # heatmap_loss = 

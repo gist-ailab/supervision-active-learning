@@ -36,10 +36,12 @@ class chestX(Dataset):
         id = idx+1
         if id in selected_list:
             bbox_loc = self.boxes[idx]["bbox"]
-            bbox = torch.zeros_like(image)
+            heatmap = torch.zeros_like(image)
+            radi = min(bbox_loc[2]/2, bbox_loc[3]/2)
+            gt = (bbox_loc[0]+bbox_loc[2]/2, bbox_loc[1]+bbox_loc[3]/2)
             for x in range(bbox_loc[0], bbox_loc[0]+bbox_loc[2]):
                 for y in range(bbox_loc[1], bbox_loc[1]+bbox_loc[3]):
-                    bbox[x][y] = 1
+                    heatmap = torch.exp(-((x-gt[0])**2+(y-gt[1])**2)/(2*(radi/3)**2))
         else:
-            bbox = None
-        return (image, label, bbox, id)
+            heatmap = None
+        return (image, label, heatmap, id)

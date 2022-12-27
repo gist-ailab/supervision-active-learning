@@ -217,4 +217,3 @@ def query_algorithm(model, criterion, ulbl_loader, ulbl_idx, device, model_paths
         arg = conf_list.argsort().cpu().numpy()
     return list(arg[:K])
 
-    
