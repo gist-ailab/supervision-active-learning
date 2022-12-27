@@ -66,4 +66,62 @@ if __name__ == "__main__":
     classif_loss = nn.CrossEntropyLoss()
     heatmap_loss = heatmap_loss()
     
+    #train-------------------------------------------------------------------
+    def train(epoch):
+        model.train()
+        Linear.train()
+        Decoder.train()
+        train_loss = 0
+        correct = 0
+        total = 0
+        pbar = tqdm(train_loader)
+        print(f'epoch : {epoch} _________________________________________________')
+        for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
+            images, labels, heatmaps = images.to(device), labels.to(device), heatmaps.to(device)
+            model_optimizer.zero_grad()
+            Linear_optimizer.zero_grad()
+            Decoder_optimizer.zero_grad()
+            feature = model(images)
+            outputs = Linear(feature)
+            pred_hmap = Decoder(feature)
+            
+            loss_cls = classif_loss(outputs, labels)
+            loss_hmap = heatmap_loss(pred_hmap, heatmaps)
+            loss = 0.1*loss_cls + loss_hmap
+            loss.backward()
+            model_optimizer.step()
+            Linear_optimizer.step()
+            Decoder_optimizer.step()
+            
+            train_loss += loss.item()
+            _, predicted = outputs.max(1)
+            total += labels.size(0)
+            correct += predicted.eq(labels).sum().item()
+            pbar.set_postfix({'loss':train_loss/len(train_loader), 'acc':100*correct/total})
     
+    #test---------------------------------------------------------------------
+    def test(epoch):
+        model.eval()
+        Linear.eval()
+        test_loss = 0
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            pbar = tqdm(test_loader)
+            for idx, (images, labels, _, img_id) in enumerate(pbar):
+                images, labels = images.to(device), labels.to(device)
+                outputs = model(images)
+                loss = classif_loss(outputs, labels)
+                
+                test_loss += loss.item()
+                _, predicted = outputs.max(1)
+                total += targets.size(0)
+                correct += predicted.eq(targets).sum().item()
+                pbar.set_postfix({'loss':test_loss/len(test_loader), 'acc':100*correct/total})
+            acc = 100*correct/total
+            if acc > best_acc:
+                torch.save(model.state_dict(), os.path.join(save_path,f'{epoch}_{acc:0.3f}_model.pt'))
+    #------------------------------------------------------------------------------
+    for i in range(args.epoch):
+        train(i)
+        test(i)

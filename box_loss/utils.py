@@ -115,84 +115,6 @@ def query_test(epoch, model, test_loader, criterion, save_path, sign, device, be
         if acc > best_acc:
             torch.save(model.state_dict(), os.path.join(save_path,sign,'query_model.pt'))
     return acc
-
-
-def domain_gap_prediction(model, criterion, ulbl_loader, ulbl_idx, sign, device, K):
-    model.eval()
-    if sign=='low_conf':
-        conf_list = torch.tensor([]).to(device)
-        with torch.no_grad():
-            pbar = tqdm(ulbl_loader)
-            for i, (inputs, _) in enumerate(pbar):
-                inputs = inputs.to(device)
-                outputs = model(inputs)
-                confidence = torch.max(F.softmax(outputs, dim=1),dim=1)
-                conf_list = torch.cat((conf_list,confidence.values),0)
-            arg = conf_list.argsort().cpu().numpy()
-        return list(arg[:K])
-    
-    if sign=='high_entropy':
-        entr_list = torch.tensor([]).to(device)
-        with torch.no_grad():
-            pbar = tqdm(ulbl_loader)
-            for i, (inputs, _) in enumerate(pbar):
-                inputs = inputs.to(device)
-                outputs = model(inputs)
-                outputs = F.softmax(outputs, dim=1)
-                entropy = -outputs*outputs.log()
-                entropy = entropy.sum(dim=1)
-                entr_list = torch.cat((entr_list,entropy),0)
-            arg = entr_list.argsort().cpu().numpy()
-        return list(arg[-K:])
-    
-    if sign=='jensen':
-        div_list = torch.tensor([]).to(device)
-        with torch.no_grad():
-            pbar = tqdm(ulbl_loader)
-            for i, (inputs, targets) in enumerate(pbar):
-                inputs = inputs.to(device)
-                inputs = inputs.view(inputs.shape[0], -1)
-                targets = targets.to(device)
-                outputs = model(inputs)
-                loss1 = criterion(outputs, targets)
-                loss2 = criterion(targets, outputs)
-                js_div = loss1[:,0]+loss2[:,0]
-                div_list = torch.cat((div_list,js_div),0)
-            arg = div_list.argsort().cpu().numpy()
-        return list(arg[:K])
-    
-    if sign=='kld':
-        div_list = torch.tensor([]).to(device)
-        with torch.no_grad():
-            pbar = tqdm(ulbl_loader)
-            for i, (inputs, targets) in enumerate(pbar):
-                inputs = inputs.to(device)
-                inputs = inputs.view(inputs.shape[0], -1)
-                targets = targets.to(device)
-                outputs = model(inputs)
-                loss1 = criterion(outputs, targets)
-                kld_div = loss1[:,0]
-                div_list = torch.cat((div_list,kld_div),0)
-            arg = div_list.argsort().cpu().numpy()
-        return list(arg[:K])
-    
-    if sign=='pad':
-        div_list = torch.tensor([]).to(device)
-        with torch.no_grad():
-            pbar = tqdm(ulbl_loader)
-            for i, (inputs, targets) in enumerate(pbar):
-                inputs = inputs.to(device)
-                inputs = inputs.view(inputs.shape[0], -1)
-                targets = targets.to(device)
-                outputs = model(inputs)
-                loss1 = criterion(outputs, targets)
-                pad_div = loss1
-                div_list = torch.cat((div_list,pad_div),0)
-            arg = div_list.argsort().cpu().numpy()
-        return list(arg[-K:])
-    
-    if sign=='random':
-        return list(np.random.randint(0, len(ulbl_idx), size=K))
     
 def query_algorithm(model, criterion, ulbl_loader, ulbl_idx, device, model_paths, K):
     model_dict = dict()
@@ -217,13 +139,6 @@ def query_algorithm(model, criterion, ulbl_loader, ulbl_idx, device, model_paths
         arg = conf_list.argsort().cpu().numpy()
     return list(arg[:K])
 
-def heatmap_loss(Y_gt, Y_pred, N = 1, a = 2, b = 4):
-    gt = ((Y_gt==torch.max(Y_gt)).nonzero())
-    Y_temp = torch.pow(1-Y_gt,b)*torch.pow(Y_pred,a)*(torch.log(1-Y_pred))
-    Y_temp[gt[0],gt[1]] = ((1-Y_pred[gt[0],gt[1]])**a)*(torch.log(Y_pred[gt[0],gt[1]]))
-    loss = torch.sum(Y_temp)
-    return -1/N * loss
-
 class heatmap_loss():
     def __init__(self, N=1, a=2, b=4):
         super(heatmap_loss, self).__init__()
@@ -231,9 +146,14 @@ class heatmap_loss():
         self.a = a
         self.b = b
     
-    def forward(self, Y_gt, Y_pred):
-        gt = ((Y_gt==torch.max(Y_gt)).nonzero())
-        Y_temp = torch.pow(1-Y_gt,self.b)*torch.pow(Y_pred,self.a)*(torch.log(1-Y_pred))
-        Y_temp[gt[0],gt[1]] = ((1-Y_pred[gt[0],gt[1]])**self.a)*(torch.log(Y_pred[gt[0],gt[1]]))
-        loss = torch.sum(Y_temp)
-        return -1/N * loss
+    def forward(self, Y_pred, Y_gt):
+        total_loss = 0
+        for b_idx in range(len(Y_gt)):
+            if Y_gt[b_idx] == None:
+                total_loss += 0
+            else:
+                gt = ((Y_gt[b_idx]==torch.max(Y_gt[b_idx])).nonzero())
+                Y_temp = torch.pow(1-Y_gt[b_idx],self.b)*torch.pow(Y_pred[b_idx],self.a)*(torch.log(1-Y_pred[b_idx]))
+                Y_temp[gt[0],gt[1]] = ((1-Y_pred[b_idx][gt[0],gt[1]])**self.a)*(torch.log(Y_pred[b_idx][gt[0],gt[1]]))
+                total_loss += torch.sum(Y_temp)
+        return -1/N * total_loss

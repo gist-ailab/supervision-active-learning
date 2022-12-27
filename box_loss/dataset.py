@@ -35,8 +35,8 @@ class chestX(Dataset):
         image = torch.tensor(image)
         image = image.permute(2,0,1)
         label = self.boxes[idx]["category_id"]
-        id = idx+1
-        if id in selected_list:
+        img_id = idx+1
+        if img_id in selected_list:
             bbox_loc = self.boxes[idx]["bbox"]
             heatmap = torch.zeros_like(image)
             heatmap = heatmap + 1e-6
@@ -45,6 +45,8 @@ class chestX(Dataset):
             for x in range(bbox_loc[0], bbox_loc[0]+bbox_loc[2]):
                 for y in range(bbox_loc[1], bbox_loc[1]+bbox_loc[3]):
                     heatmap = torch.exp(-((x-gt[0])**2+(y-gt[1])**2)/(2*(radi/3)**2))
+            downsample = transforms.Resize(256)
+            heatmap = downsample(heatmap)
         else:
             heatmap = None
-        return (image, label, heatmap, id)
+        return (image, label, heatmap, img_id)
