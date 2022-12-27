@@ -31,12 +31,15 @@ class chestX(Dataset):
     def __getitem__(self, idx):
         file_path = os.path.join(self.filedir_path, self.images[idx]["file_name"])
         image = cv2.imread(file_path)
+        h,w,_ = image.shape
         image = torch.tensor(image)
+        image = image.permute(2,0,1)
         label = self.boxes[idx]["category_id"]
         id = idx+1
         if id in selected_list:
             bbox_loc = self.boxes[idx]["bbox"]
             heatmap = torch.zeros_like(image)
+            heatmap = heatmap + 1e-6
             radi = min(bbox_loc[2]/2, bbox_loc[3]/2)
             gt = (bbox_loc[0]+bbox_loc[2]/2, bbox_loc[1]+bbox_loc[3]/2)
             for x in range(bbox_loc[0], bbox_loc[0]+bbox_loc[2]):

@@ -64,4 +64,6 @@ if __name__ == "__main__":
     Decoder_optimizer = optim.Adam(Decoder.parameters(), lr=args.lr)
     
     classif_loss = nn.CrossEntropyLoss()
-    # heatmap_loss = 
+    heatmap_loss = heatmap_loss()
+    
+    
