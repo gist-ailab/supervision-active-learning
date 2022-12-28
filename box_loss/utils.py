@@ -139,7 +139,7 @@ def query_algorithm(model, criterion, ulbl_loader, ulbl_idx, device, model_paths
         arg = conf_list.argsort().cpu().numpy()
     return list(arg[:K])
 
-class heatmap_loss():
+class heatmap_loss(nn.Module):
     def __init__(self, N=1, a=2, b=4):
         super(heatmap_loss, self).__init__()
         self.N = N
@@ -149,11 +149,11 @@ class heatmap_loss():
     def forward(self, Y_pred, Y_gt):
         total_loss = 0
         for b_idx in range(len(Y_gt)):
-            if Y_gt[b_idx] == None:
+            if len(Y_gt[b_idx]) == 0:
                 total_loss += 0
             else:
                 gt = ((Y_gt[b_idx]==torch.max(Y_gt[b_idx])).nonzero())
                 Y_temp = torch.pow(1-Y_gt[b_idx],self.b)*torch.pow(Y_pred[b_idx],self.a)*(torch.log(1-Y_pred[b_idx]))
                 Y_temp[gt[0],gt[1]] = ((1-Y_pred[b_idx][gt[0],gt[1]])**self.a)*(torch.log(Y_pred[b_idx][gt[0],gt[1]]))
                 total_loss += torch.sum(Y_temp)
-        return -1/N * total_loss
+        return -1/self.N * total_loss
