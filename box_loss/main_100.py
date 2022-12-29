@@ -19,7 +19,7 @@ import utils
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/chestx-det')
 parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/box_loss/all')
-parser.add_argument('--epoch', type=int, default=100)
+parser.add_argument('--epoch', type=int, default=50)
 parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--gpu', type=str, default='3')
@@ -49,14 +49,14 @@ else:
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
     
-save_path = os.path.join(args.save_path, args.query_algorithm)
+save_path = os.path.join(save_path, args.query_algorithm)
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
     
 if __name__ == "__main__":
-    selected = []
+    selected = [i for i in range(1,3002)]
     trainset = dataset.chestX(args.data_path, 'train', selected)
-    testset = dataset.chestX(args.data_path, 'test', [i for i in range(1,3002)])
+    testset = dataset.chestX(args.data_path, 'test', [])
     train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True)
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False)
     
@@ -89,15 +89,17 @@ if __name__ == "__main__":
             model_optimizer.zero_grad()
             Linear_optimizer.zero_grad()
             Decoder_optimizer.zero_grad()
+            
             feature = model(images)
             outputs = linear(feature)
             pred_hmap = decoder(feature)
+            pred_hmap = nn.functional.softmax(pred_hmap, dim=-1)
+            pred_hmap = pred_hmap.squeeze()
             
-            # print(labels)
-            loss_cls = classif_loss(outputs, labels)
-            # print(loss_cls)
+            loss_cls = classif_loss(outputs, labels) 
             loss_hmap = heatmap_loss(pred_hmap, heatmaps)
-            loss = loss_cls + loss_hmap
+            # print(loss_cls, loss_hmap)
+            loss = loss_cls + 10*loss_hmap
             loss.backward()
             model_optimizer.step()
             Linear_optimizer.step()

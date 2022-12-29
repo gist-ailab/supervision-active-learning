@@ -25,6 +25,10 @@ class chestX(Dataset):
         self.images = jsonfile["images"]
         self.boxes = jsonfile["annotations"]
         self.downsample = transforms.Resize(256)
+        self.base_heatmap = torch.zeros((256,256,2))
+        for x in range(256):
+            for y in range(256):
+                self.base_heatmap[x,y,:] = torch.tensor([x,y])
         
     def __len__(self):
         return len(self.images)
@@ -40,18 +44,23 @@ class chestX(Dataset):
         temp[label-1] = 1
         label = temp
         img_id = idx+1
+        # print(self.selected_list)
         if img_id in self.selected_list:
             bbox_loc = self.boxes[idx]["bbox"]
-            heatmap = torch.zeros_like(image)
-            heatmap = heatmap + 1e-6
+            bbox_loc = torch.tensor(bbox_loc) * (256/1024)
+            heatmap = torch.clone(self.base_heatmap)
             radi = min(bbox_loc[2]/2, bbox_loc[3]/2)
-            gt = (bbox_loc[0]+bbox_loc[2]/2, bbox_loc[1]+bbox_loc[3]/2)
-            for x in range(bbox_loc[0], bbox_loc[0]+bbox_loc[2]):
-                for y in range(bbox_loc[1], bbox_loc[1]+bbox_loc[3]):
-                    heatmap[0,x,y] = torch.exp(torch.tensor(-((x-gt[0])**2+(y-gt[1])**2)/(2*(radi/3)**2)))
-            heatmap = self.downsample(heatmap)
+            sigma = radi/3
+            gt = torch.tensor([bbox_loc[0]+bbox_loc[2]/2, bbox_loc[1]+bbox_loc[3]/2])
+            
+            heatmap = heatmap - gt
+            heatmap = heatmap * heatmap
+            heatmap = torch.sum(heatmap, dim=-1)
+            heatmap = -1*heatmap/(2*sigma)**2
+            heatmap = torch.exp(heatmap)
         else:
             heatmap = torch.tensor([])
         image = self.downsample(image)
         
+        # print(heatmap)
         return (image, label, heatmap, img_id)
