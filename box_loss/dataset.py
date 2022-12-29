@@ -33,7 +33,7 @@ class chestX(Dataset):
         file_path = os.path.join(self.filedir_path, self.images[idx]["file_name"])
         image = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
         image = transforms.functional.to_tensor(image)
-        image = self.downsample(image)
+        
         # image = image.permute(2,0,1)
         label = self.boxes[idx]["category_id"]
         temp = torch.zeros(10)
@@ -48,8 +48,10 @@ class chestX(Dataset):
             gt = (bbox_loc[0]+bbox_loc[2]/2, bbox_loc[1]+bbox_loc[3]/2)
             for x in range(bbox_loc[0], bbox_loc[0]+bbox_loc[2]):
                 for y in range(bbox_loc[1], bbox_loc[1]+bbox_loc[3]):
-                    heatmap = torch.exp(-((x-gt[0])**2+(y-gt[1])**2)/(2*(radi/3)**2))
+                    heatmap[0,x,y] = torch.exp(torch.tensor(-((x-gt[0])**2+(y-gt[1])**2)/(2*(radi/3)**2)))
             heatmap = self.downsample(heatmap)
         else:
             heatmap = torch.tensor([])
+        image = self.downsample(image)
+        
         return (image, label, heatmap, img_id)
