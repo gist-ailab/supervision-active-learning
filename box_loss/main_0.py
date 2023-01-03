@@ -18,12 +18,12 @@ import utils
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/chestx-det')
-parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/box_loss/zero')
+parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero')
 parser.add_argument('--epoch', type=int, default=50)
 parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--gpu', type=str, default='3')
-parser.add_argument('--dataset', type=str, choices=[''], default='')
+parser.add_argument('--dataset', type=str, default='')
 parser.add_argument('--query_algorithm', type=str, choices=['loss'], default='loss')
 parser.add_argument('--addendum', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=32)
@@ -39,10 +39,18 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 episode = args.episode
 if not os.path.isdir(args.data_path):
     os.mkdir(args.data_path)
+
+if not os.path.isdir(args.save_path):
+    os.mkdir(args.save_path)
+
 if not args.seed==None:
-    save_path = os.path.join(args.save_path, f'seed{args.seed}',args.query_algorithm)
+    save_path = os.path.join(args.save_path, f'seed{args.seed}')
 else:
-    save_path = os.path.join(args.save_path, 'current', args.query_algorithm)
+    save_path = os.path.join(args.save_path, 'current')
+if not os.path.isdir(save_path):
+    os.mkdir(save_path)
+    
+save_path = os.path.join(save_path, args.query_algorithm)
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
     
@@ -54,8 +62,8 @@ if __name__ == "__main__":
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False)
     
     model = ResNet18()
-    linear = Linear(num_classes=10)
-    decoder = Decoder(output_size=256)
+    linear = Linear(num_classes=30)
+    decoder = Decoder(output_size=224)
     model = model.to(device)
     linear = linear.to(device)
     decoder = decoder.to(device)

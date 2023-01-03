@@ -23,7 +23,7 @@ parser.add_argument('--epoch', type=int, default=50)
 parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--gpu', type=str, default='3')
-parser.add_argument('--dataset', type=str, choices=[''], default='')
+parser.add_argument('--dataset', type=str, default='')
 parser.add_argument('--query_algorithm', type=str, choices=['loss'], default='loss')
 parser.add_argument('--addendum', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=32)
@@ -54,15 +54,15 @@ if not os.path.isdir(save_path):
     os.mkdir(save_path)
     
 if __name__ == "__main__":
-    selected = [i for i in range(1,3002)]
+    selected = [i for i in range(0,15849)]
     trainset = dataset.chestX(args.data_path, 'train', selected)
     testset = dataset.chestX(args.data_path, 'test', [])
     train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True)
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False)
     
     model = ResNet18()
-    linear = Linear(num_classes=10)
-    decoder = Decoder(output_size=256)
+    linear = Linear(num_classes=30)
+    decoder = Decoder(output_size=224)
     model = model.to(device)
     linear = linear.to(device)
     decoder = decoder.to(device)
