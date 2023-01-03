@@ -13,16 +13,16 @@ from resnet import *
 import argparse
 import pickle
 import random
-import dataset
+from dataset import chestX, ilsvrc30
 import utils
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/chestx-det')
+parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
 parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero')
 parser.add_argument('--epoch', type=int, default=50)
 parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
-parser.add_argument('--gpu', type=str, default='3')
+parser.add_argument('--gpu', type=str, default='7')
 parser.add_argument('--dataset', type=str, default='')
 parser.add_argument('--query_algorithm', type=str, choices=['loss'], default='loss')
 parser.add_argument('--addendum', type=int, default=1000)
@@ -56,8 +56,8 @@ if not os.path.isdir(save_path):
     
 if __name__ == "__main__":
     selected = []
-    trainset = dataset.chestX(args.data_path, 'train', selected)
-    testset = dataset.chestX(args.data_path, 'test', [])
+    trainset = ilsvrc30(args.data_path, 'train', selected)
+    testset = ilsvrc30(args.data_path, 'val', [])
     train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True)
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False)
     
