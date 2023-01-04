@@ -27,7 +27,7 @@ parser.add_argument('--dataset', type=str, default='')
 parser.add_argument('--query_algorithm', type=str, choices=['loss'], default='loss')
 parser.add_argument('--addendum', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=32)
-parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--lr', type=float, default=0.01)
 
 args = parser.parse_args()
 
@@ -67,9 +67,13 @@ if __name__ == "__main__":
     linear = linear.to(device)
     decoder = decoder.to(device)
     
-    model_optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    Linear_optimizer = optim.Adam(linear.parameters(), lr=args.lr)
-    Decoder_optimizer = optim.Adam(decoder.parameters(), lr=args.lr)
+    model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
+    Linear_optimizer = optim.SGD(linear.parameters(), lr=args.lr)
+    Decoder_optimizer = optim.SGD(decoder.parameters(), lr=args.lr)
+    
+    model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)
+    linear_scheduler = MultiStepLR(Linear_optimizer, milestones=[30,80], gamma=0.1)
+    Decoder_scheduler = MultiStepLR(Decoder_optimizer, milestones=[30,80], gamma=0.1)
     
     classif_loss = nn.CrossEntropyLoss()
     heatmap_loss = utils.heatmap_loss()
@@ -108,7 +112,7 @@ if __name__ == "__main__":
             train_loss += loss.item()
             _, predicted = outputs.max(1)
             total += labels.size(0)
-            correct += predicted.eq(torch.argmax(labels,dim=-1)).sum().item()
+            correct += predicted.eq(labels).sum().item()
             pbar.set_postfix({'loss':train_loss/len(train_loader), 'acc':100*correct/total})
     
     #test---------------------------------------------------------------------
@@ -129,7 +133,7 @@ if __name__ == "__main__":
                 test_loss += loss.item()
                 _, predicted = outputs.max(1)
                 total += labels.size(0)
-                correct += predicted.eq(torch.argmax(labels,dim=-1)).sum().item()
+                correct += predicted.eq(labels).sum().item()
                 pbar.set_postfix({'loss':test_loss/len(test_loader), 'acc':100*correct/total})
             acc = 100*correct/total
             if acc > best_acc:
@@ -141,3 +145,6 @@ if __name__ == "__main__":
     for i in range(args.epoch):
         train(i)
         best_acc = test(i, best_acc)
+        model_scheduler.step()
+        linear_scheduler.step()
+        Decoder_scheduler.step()

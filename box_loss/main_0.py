@@ -19,15 +19,15 @@ import utils
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
 parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero')
-parser.add_argument('--epoch', type=int, default=50)
+parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
-parser.add_argument('--gpu', type=str, default='7')
+parser.add_argument('--gpu', type=str, default='5')
 parser.add_argument('--dataset', type=str, default='')
 parser.add_argument('--query_algorithm', type=str, choices=['loss'], default='loss')
 parser.add_argument('--addendum', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=32)
-parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--lr', type=float, default=0.01)
 
 args = parser.parse_args()
 
@@ -62,15 +62,24 @@ if __name__ == "__main__":
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False)
     
     model = ResNet18()
+    # model_para = models.resnet18(weights=True).state_dict()
+    # model.load_state_dict(model_para, strict=False)
     linear = Linear(num_classes=30)
     decoder = Decoder(output_size=224)
     model = model.to(device)
     linear = linear.to(device)
     decoder = decoder.to(device)
     
-    model_optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    Linear_optimizer = optim.Adam(linear.parameters(), lr=args.lr)
-    Decoder_optimizer = optim.Adam(decoder.parameters(), lr=args.lr)
+    model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
+    Linear_optimizer = optim.SGD(linear.parameters(), lr=args.lr)
+    # Decoder_optimizer = optim.SGD(decoder.parameters(), lr=args.lr)
+    
+    main_parameters = [{'params' : model.parameters()},{'params' : linear.parameters()}]
+    main_optimizer = optim.SGD(main_parameters, lr=args.lr)
+    main_scheduler = MultiStepLR(main_optimizer, milestones=[30,80], gamma=0.1)
+    
+    # model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)
+    # linear_scheduler = MultiStepLR(Linear_optimizer, milestones=[30,80], gamma=0.1)
     
     classif_loss = nn.CrossEntropyLoss()
     heatmap_loss = utils.heatmap_loss()
@@ -87,27 +96,32 @@ if __name__ == "__main__":
         print(f'epoch : {epoch} _________________________________________________')
         for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
             images, labels, heatmaps = images.to(device), labels.to(device), heatmaps.to(device)
-            model_optimizer.zero_grad()
-            Linear_optimizer.zero_grad()
-            Decoder_optimizer.zero_grad()
+            # model_optimizer.zero_grad()
+            # Linear_optimizer.zero_grad()
+            main_optimizer.zero_grad()
+            # Decoder_optimizer.zero_grad()
             feature = model(images)
             outputs = linear(feature)
-            pred_hmap = decoder(feature)
+            # pred_hmap = decoder(feature)
             
+            # print(torch.argmax(outputs, dim=-1))
             # print(labels)
+            
             loss_cls = classif_loss(outputs, labels)
             # print(loss_cls)
-            loss_hmap = heatmap_loss(pred_hmap, heatmaps)
-            loss = loss_cls + loss_hmap
+            # loss_hmap = heatmap_loss(pred_hmap, heatmaps)
+            # loss = loss_cls + loss_hmap
+            loss = loss_cls
             loss.backward()
-            model_optimizer.step()
-            Linear_optimizer.step()
-            Decoder_optimizer.step()
+            # model_optimizer.step()
+            # Linear_optimizer.step()
+            # Decoder_optimizer.step()
+            main_optimizer.step()
             
             train_loss += loss.item()
             _, predicted = outputs.max(1)
             total += labels.size(0)
-            correct += predicted.eq(torch.argmax(labels,dim=-1)).sum().item()
+            correct += predicted.eq(labels).sum().item()
             pbar.set_postfix({'loss':train_loss/len(train_loader), 'acc':100*correct/total})
     
     #test---------------------------------------------------------------------
@@ -128,7 +142,7 @@ if __name__ == "__main__":
                 test_loss += loss.item()
                 _, predicted = outputs.max(1)
                 total += labels.size(0)
-                correct += predicted.eq(torch.argmax(labels,dim=-1)).sum().item()
+                correct += predicted.eq(labels).sum().item()
                 pbar.set_postfix({'loss':test_loss/len(test_loader), 'acc':100*correct/total})
             acc = 100*correct/total
             if acc > best_acc:
@@ -140,3 +154,6 @@ if __name__ == "__main__":
     for i in range(args.epoch):
         train(i)
         best_acc = test(i, best_acc)
+        # model_scheduler.step()
+        # linear_scheduler.step()
+        main_scheduler.step()
