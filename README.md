@@ -15,8 +15,8 @@ sudo apt update && sudo apt upgrade
 
 2. Set up a python environment
 ```
-conda create -n test_env python=3.8
-conda activate test_env
+conda create -n supervision_al python=3.8
+conda activate supervision_al
 pip install -r requirement.txt
 ```
 ## Train & Evaluation
