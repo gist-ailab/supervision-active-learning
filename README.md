@@ -15,9 +15,8 @@ sudo apt update && sudo apt upgrade
 
 2. Set up a python environment
 ```
-conda create -n supervision_al python=3.8
-conda activate supervision_al
-pip install -r requirement.txt
+1. modify 'name' and 'prefix' in environment.yml 
+2. Run 'conda create --file environment.yml'
 ```
 ## Train & Evaluation
 
