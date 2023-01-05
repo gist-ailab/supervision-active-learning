@@ -19,7 +19,7 @@ import utils
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
 parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/all')
-parser.add_argument('--epoch', type=int, default=50)
+parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--gpu', type=str, default='7')
@@ -97,13 +97,13 @@ if __name__ == "__main__":
             feature = model(images)
             outputs = linear(feature)
             pred_hmap = decoder(feature)
-            pred_hmap = nn.functional.softmax(pred_hmap, dim=-1)
+            pred_hmap = torch.sigmoid(pred_hmap)
             pred_hmap = pred_hmap.squeeze()
             
             loss_cls = classif_loss(outputs, labels) 
             loss_hmap = heatmap_loss(pred_hmap, heatmaps)
             # print(loss_cls, loss_hmap)
-            loss = loss_cls + 10*loss_hmap
+            loss = loss_cls + 0.01*loss_hmap
             loss.backward()
             model_optimizer.step()
             Linear_optimizer.step()
@@ -137,12 +137,12 @@ if __name__ == "__main__":
                 pbar.set_postfix({'loss':test_loss/len(test_loader), 'acc':100*correct/total})
             acc = 100*correct/total
             if acc > best_acc:
-                torch.save(model.state_dict(), os.path.join(save_path,f'{epoch}_{acc:0.3f}_model.pt'))
+                torch.save({'model':model.state_dict(), 'linear':linear.state_dict(), 'decoder':decoder.state_dict()}, os.path.join(save_path,f'{epoch}_{acc:0.3f}_model.pt'))
                 best_acc = acc
             return best_acc 
     #------------------------------------------------------------------------------
     best_acc = 0
-    for i in range(args.epoch):
+    for i in range(0, args.epoch):
         train(i)
         best_acc = test(i, best_acc)
         model_scheduler.step()

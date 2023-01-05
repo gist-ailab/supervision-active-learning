@@ -18,13 +18,13 @@ import utils
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
-parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero')
+parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/all')
 parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
-parser.add_argument('--gpu', type=str, default='5')
+parser.add_argument('--gpu', type=str, default='3')
 parser.add_argument('--dataset', type=str, default='')
-parser.add_argument('--query_algorithm', type=str, choices=['loss'], default='loss')
+parser.add_argument('--query_algorithm', type=str, default='loss_005')
 parser.add_argument('--addendum', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--lr', type=float, default=0.01)
@@ -39,7 +39,6 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 episode = args.episode
 if not os.path.isdir(args.data_path):
     os.mkdir(args.data_path)
-
 if not os.path.isdir(args.save_path):
     os.mkdir(args.save_path)
 
@@ -55,7 +54,7 @@ if not os.path.isdir(save_path):
     os.mkdir(save_path)
     
 if __name__ == "__main__":
-    selected = []
+    selected = [i for i in range(0,15849)]
     trainset = ilsvrc30(args.data_path, 'train', selected)
     testset = ilsvrc30(args.data_path, 'val', [])
     train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True)
@@ -70,10 +69,11 @@ if __name__ == "__main__":
     
     model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
     Linear_optimizer = optim.SGD(linear.parameters(), lr=args.lr)
-    # Decoder_optimizer = optim.SGD(decoder.parameters(), lr=args.lr)
+    Decoder_optimizer = optim.SGD(decoder.parameters(), lr=args.lr)
     
     model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)
     linear_scheduler = MultiStepLR(Linear_optimizer, milestones=[30,80], gamma=0.1)
+    Decoder_scheduler = MultiStepLR(Decoder_optimizer, milestones=[30,80], gamma=0.1)
     
     classif_loss = nn.CrossEntropyLoss()
     heatmap_loss = utils.heatmap_loss()
@@ -92,22 +92,22 @@ if __name__ == "__main__":
             images, labels, heatmaps = images.to(device), labels.to(device), heatmaps.to(device)
             model_optimizer.zero_grad()
             Linear_optimizer.zero_grad()
-            # Decoder_optimizer.zero_grad()
+            Decoder_optimizer.zero_grad()
+            
             feature = model(images)
             outputs = linear(feature)
-            # pred_hmap = decoder(feature)
+            pred_hmap = decoder(feature)
+            pred_hmap = torch.sigmoid(pred_hmap)
+            pred_hmap = pred_hmap.squeeze()
             
-            # print(torch.argmax(outputs, dim=-1))
-            
-            loss_cls = classif_loss(outputs, labels)
-            # print(loss_cls)
-            # loss_hmap = heatmap_loss(pred_hmap, heatmaps)
-            # loss = loss_cls + loss_hmap
-            loss = loss_cls
+            loss_cls = classif_loss(outputs, labels) 
+            loss_hmap = heatmap_loss(pred_hmap, heatmaps)
+            # print(loss_cls, loss_hmap)
+            loss = loss_cls + 0.01*loss_hmap
             loss.backward()
             model_optimizer.step()
             Linear_optimizer.step()
-            # Decoder_optimizer.step()
+            Decoder_optimizer.step()
             
             train_loss += loss.item()
             _, predicted = outputs.max(1)
@@ -142,8 +142,9 @@ if __name__ == "__main__":
             return best_acc 
     #------------------------------------------------------------------------------
     best_acc = 0
-    for i in range(args.epoch):
+    for i in range(0, args.epoch):
         train(i)
         best_acc = test(i, best_acc)
         model_scheduler.step()
         linear_scheduler.step()
+        Decoder_scheduler.step()

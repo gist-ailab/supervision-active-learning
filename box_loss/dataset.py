@@ -116,7 +116,7 @@ class ilsvrc30(Dataset):
                 rx_min, rx_max = 224*x_min/width, 224*x_max/width
                 ry_min, ry_max = 224*y_min/height, 224*y_max/height
                 heatmap = torch.clone(self.base_heatmap)
-                radi = max((rx_max-rx_min)/2, (ry_max-ry_min)/2)
+                radi = min((rx_max-rx_min)/2, (ry_max-ry_min)/2)
                 sigma = radi/3
                 gt = torch.tensor([rx_min+(rx_max-rx_min)/2, ry_min+(ry_max-ry_min)/2])
                 heatmap = heatmap - gt
