@@ -8,21 +8,17 @@
 
 ### Environment Setup
 
-Tested on Titan RTX with python 3.7, pytorch 1.8.0, torchvision 0.9.0, CUDA 10.2 / 11.1 and detectron2 v0.5 / v0.6
-
 1. Install dependencies
 ```
-sudo apt update && sudo apt upgrade
+[requirements.txt](https://github.com/gist-ailab/supervision-active-learning/files/10349631/requirements.txt)
 ```
 
 2. Set up a python environment
 ```
 conda create -n test_env python=3.8
 conda activate test_env
-pip install torch torchvision
-python setup.py build develop
+pip install -r requirement.txt
 ```
-
 ## Train & Evaluation
 
 ### Dataset Preparation
@@ -30,12 +26,10 @@ python setup.py build develop
 ```
 wget sample_dataset.com
 ```
-
 2. Extract it to `sample folder`
 ```
 tar -xvf sample_dataset.tar
 ```
-
 3. Organize the folders as follows
 ```
 test
