@@ -10,7 +10,7 @@
 
 1. Install dependencies
 ```
-[requirements.txt](https://github.com/gist-ailab/supervision-active-learning/files/10349631/requirements.txt)
+sudo apt update && sudo apt upgrade
 ```
 
 2. Set up a python environment
