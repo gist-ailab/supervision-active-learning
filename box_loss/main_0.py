@@ -19,7 +19,7 @@ import utils
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
 parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero')
-parser.add_argument('--epoch', type=int, default=100)
+parser.add_argument('--epoch', type=int, default=150)
 parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--gpu', type=str, default='5')
@@ -72,8 +72,8 @@ if __name__ == "__main__":
     Linear_optimizer = optim.SGD(linear.parameters(), lr=args.lr)
     # Decoder_optimizer = optim.SGD(decoder.parameters(), lr=args.lr)
     
-    model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)
-    linear_scheduler = MultiStepLR(Linear_optimizer, milestones=[30,80], gamma=0.1)
+    model_scheduler = MultiStepLR(model_optimizer, milestones=[50,100], gamma=0.1)
+    linear_scheduler = MultiStepLR(Linear_optimizer, milestones=[50,100], gamma=0.1)
     
     classif_loss = nn.CrossEntropyLoss()
     heatmap_loss = utils.heatmap_loss()
