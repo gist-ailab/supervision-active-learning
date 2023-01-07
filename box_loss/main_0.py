@@ -19,7 +19,7 @@ import utils
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
 parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero')
-parser.add_argument('--epoch', type=int, default=150)
+parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--gpu', type=str, default='5')
@@ -67,6 +67,11 @@ if __name__ == "__main__":
     model = model.to(device)
     linear = linear.to(device)
     decoder = decoder.to(device)
+    
+    model_para = torch.load('/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero/current/loss/98_74.450_model.pt')
+    model.load_state_dict(model_para['model'])
+    linear.load_state_dict(model_para['linear'])
+    # decoder.load_state_dict(model_para['decoder'])
     
     model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
     Linear_optimizer = optim.SGD(linear.parameters(), lr=args.lr)
@@ -141,8 +146,8 @@ if __name__ == "__main__":
                 best_acc = acc
             return best_acc 
     #------------------------------------------------------------------------------
-    best_acc = 0
-    for i in range(args.epoch):
+    best_acc = 74.45
+    for i in range(98, args.epoch):
         train(i)
         best_acc = test(i, best_acc)
         model_scheduler.step()

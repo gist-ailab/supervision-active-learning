@@ -19,12 +19,12 @@ import utils
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
 parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/all')
-parser.add_argument('--epoch', type=int, default=150)
+parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--gpu', type=str, default='7')
 parser.add_argument('--dataset', type=str, default='')
-parser.add_argument('--query_algorithm', type=str, choices=['loss'], default='loss')
+parser.add_argument('--query_algorithm', type=str, choices=['loss'], default='loss2')
 parser.add_argument('--addendum', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--lr', type=float, default=0.01)
@@ -67,6 +67,11 @@ if __name__ == "__main__":
     linear = linear.to(device)
     decoder = decoder.to(device)
     
+    # model_para = torch.load('/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/all/current/loss/98_67.178_model.pt')
+    # model.load_state_dict(model_para['model'])
+    # linear.load_state_dict(model_para['linear'])
+    # decoder.load_state_dict(model_para['decoder'])
+    
     model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
     Linear_optimizer = optim.SGD(linear.parameters(), lr=args.lr)
     Decoder_optimizer = optim.SGD(decoder.parameters(), lr=args.lr)
@@ -76,7 +81,7 @@ if __name__ == "__main__":
     Decoder_scheduler = MultiStepLR(Decoder_optimizer, milestones=[50,100], gamma=0.1)
     
     classif_loss = nn.CrossEntropyLoss()
-    heatmap_loss = utils.heatmap_loss()
+    heatmap_loss = utils.heatmap_loss2()
     
     #train-------------------------------------------------------------------
     def train(epoch):
