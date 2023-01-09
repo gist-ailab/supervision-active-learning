@@ -178,3 +178,47 @@ class heatmap_loss2(nn.Module):
                 Y_temp[gt[0],gt[1]] = ((1-Y_pred[b_idx][gt[0],gt[1]])**self.a)*(torch.log(1-Y_pred[b_idx][gt[0],gt[1]]+self.e))
                 total_loss += torch.sum(Y_temp)
         return -1/self.N * total_loss
+    
+class heatmap_loss3(nn.Module):
+    def __init__(self, a=1):
+        super(heatmap_loss2, self).__init__()
+        self.a = a
+        self.e = 1e-10
+    
+    def forward(self, Y_pred, Y_gt):
+        total_loss = 0
+        for b_idx in range(len(Y_gt)):
+            if len(Y_gt[b_idx]) == 0:
+                total_loss += 0
+            else:
+                gt = ((Y_gt[b_idx]==torch.max(Y_gt[b_idx])).nonzero())[0]
+                min_pred = torch.min(Y_pred[b_idx])
+                max_pred = torch.max(Y_pred[b_idx])
+                Y_g = Y_gt[b_idx]
+                Y_p = Y_pred[b_idx].clone()
+                Y_p = (Y_pred - min_pred)/(max_pred-min_pred)
+                Y_temp = Y_p * Y_g
+                total_loss += torch.sum(Y_temp)
+        return 1/(1+total_loss)
+    
+class heatmap_loss4(nn.Module):
+    def __init__(self, a=1):
+        super(heatmap_loss2, self).__init__()
+        self.a = a
+        self.e = 1e-10
+    
+    def forward(self, Y_pred, Y_gt):
+        total_loss = 0
+        for b_idx in range(len(Y_gt)):
+            if len(Y_gt[b_idx]) == 0:
+                total_loss += 0
+            else:
+                gt = ((Y_gt[b_idx]==torch.max(Y_gt[b_idx])).nonzero())[0]
+                min_pred = torch.min(Y_pred[b_idx])
+                max_pred = torch.max(Y_pred[b_idx])
+                Y_g = Y_gt[b_idx]
+                Y_p = Y_pred[b_idx].clone()
+                Y_p = (Y_pred - min_pred)/(max_pred-min_pred)
+                Y_temp = torch.max(Y_g - Y_pt, 0)
+                total_loss += torch.sum(Y_temp)
+        return total_loss
