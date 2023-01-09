@@ -68,9 +68,9 @@ if __name__ == "__main__":
     linear = linear.to(device)
     decoder = decoder.to(device)
     
-    model_para = torch.load('/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero/current/loss/98_74.450_model.pt')
-    model.load_state_dict(model_para['model'])
-    linear.load_state_dict(model_para['linear'])
+    # model_para = torch.load('/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero/current/loss/98_74.450_model.pt')
+    # model.load_state_dict(model_para['model'])
+    # linear.load_state_dict(model_para['linear'])
     # decoder.load_state_dict(model_para['decoder'])
     
     model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
@@ -146,8 +146,8 @@ if __name__ == "__main__":
                 best_acc = acc
             return best_acc 
     #------------------------------------------------------------------------------
-    best_acc = 74.45
-    for i in range(98, args.epoch):
+    best_acc = 0
+    for i in range(0, args.epoch):
         train(i)
         best_acc = test(i, best_acc)
         model_scheduler.step()

@@ -174,7 +174,7 @@ class heatmap_loss2(nn.Module):
                 total_loss += 0
             else:
                 gt = ((Y_gt[b_idx]==torch.max(Y_gt[b_idx])).nonzero())[0]
-                Y_temp = torch.pow(1-Y_gt[b_idx],self.b)*torch.pow(Y_pred[b_idx],self.b)
+                Y_temp = 0.01*torch.pow(1-Y_gt[b_idx],self.b)*(torch.log(1-Y_pred[b_idx]+self.e))
                 Y_temp[gt[0],gt[1]] = ((1-Y_pred[b_idx][gt[0],gt[1]])**self.a)*(torch.log(1-Y_pred[b_idx][gt[0],gt[1]]+self.e))
                 total_loss += torch.sum(Y_temp)
         return -1/self.N * total_loss

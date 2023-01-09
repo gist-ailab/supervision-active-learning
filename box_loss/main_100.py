@@ -22,7 +22,7 @@ parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace
 parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
-parser.add_argument('--gpu', type=str, default='7')
+parser.add_argument('--gpu', type=str, default='4')
 parser.add_argument('--dataset', type=str, default='')
 parser.add_argument('--query_algorithm', type=str, choices=['loss'], default='loss2')
 parser.add_argument('--addendum', type=int, default=1000)
@@ -57,7 +57,7 @@ if __name__ == "__main__":
     selected = [i for i in range(0,15849)]
     trainset = ilsvrc30(args.data_path, 'train', selected)
     testset = ilsvrc30(args.data_path, 'val', [])
-    train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True)
+    train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=32)
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False)
     
     model = ResNet18()
