@@ -81,10 +81,11 @@ class ilsvrc30(Dataset):
             self.data_list = list(csv_reader)
             self.data_list = self.data_list[1:]
         self.transform = self.imagenet_transform()
-        self.base_heatmap = torch.zeros((224,224,2))
-        for x in range(224):
-            for y in range(224):
-                self.base_heatmap[x,y,:] = torch.tensor([x,y])
+        self.transform2 = self.imagenet_transform2()
+        self.base_heatmap = torch.zeros((256,256,2))
+        for x in range(256):
+            for y in range(256):
+                self.base_heatmap[x,y,:] = torch.tensor([y,x])
         self.label_class = {'n01440764' : 0,'n01443537' : 1,'n01484850' : 2,'n01491361' : 3,'n01494475' : 4,'n01496331' : 5,
                             'n01498041' : 6,'n01514668' : 7,'n01514859' : 8,'n01518878' : 9,'n01530575' : 10,'n01531178' : 11,
                             'n01532829' : 12,'n01534433' : 13,'n01537544' : 14,'n01558993' : 15,'n01560419' : 16,'n01580077' : 17,
@@ -106,27 +107,32 @@ class ilsvrc30(Dataset):
         if type(image)==None:
             print(image_path)
         height,width,_ = image.shape
+        image2 = self.transform2(image)
         image = self.transform(image)
         
         if idx in self.selected_list:            
-            final_heatmap = torch.zeros((224,224))
+            final_heatmap = torch.zeros((256,256))
             for i in range(0,len(label_list),5):
                 _, x_min, y_min, x_max, y_max = label_list[i:i+5]
                 x_min, y_min, x_max, y_max = int(x_min), int(y_min), int(x_max), int(y_max)
-                rx_min, rx_max = 224*x_min/width, 224*x_max/width
-                ry_min, ry_max = 224*y_min/height, 224*y_max/height
+                rx_min, rx_max = 256*x_min/width, 256*x_max/width
+                ry_min, ry_max = 256*y_min/height, 256*y_max/height
                 heatmap = torch.clone(self.base_heatmap)
-                radi = min((rx_max-rx_min)/2, (ry_max-ry_min)/2)
-                sigma = radi/3
+                # radi = min((rx_max-rx_min)/2, (ry_max-ry_min)/2)
+                sigma = 1/2
+                x_r, y_r = (rx_max-rx_min)/2, (ry_max-ry_min)/2
+                radi = torch.tensor([x_r,y_r])
                 gt = torch.tensor([rx_min+(rx_max-rx_min)/2, ry_min+(ry_max-ry_min)/2])
-                heatmap = heatmap - gt
+                heatmap = (heatmap - gt)/radi
                 heatmap = heatmap * heatmap
                 heatmap = torch.sum(heatmap, dim=-1)
                 heatmap = -1*heatmap/(2*sigma)**2
                 heatmap = torch.exp(heatmap)
                 final_heatmap = final_heatmap + heatmap
+                # final_heatmap = torch.sigmoid(final_heatmap)
             # final_heatmap = final_heatmap/(len(label_list)/5)
             heatmap = final_heatmap
+            # heatmap = heatmap[16:240,16:240]
         else:
             heatmap = torch.tensor([])
         
@@ -136,9 +142,17 @@ class ilsvrc30(Dataset):
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
         transform = transforms.Compose(
             [transforms.ToPILImage(),
-             transforms.Resize(256),
-             transforms.CenterCrop(224),
+             transforms.Resize((256,256)),
              transforms.ToTensor(),
              normalize,
+            ])
+        return transform
+    
+    def imagenet_transform2(self):
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
+        transform = transforms.Compose(
+            [transforms.ToPILImage(),
+             transforms.Resize((256,256)),
+             transforms.ToTensor(),
             ])
         return transform

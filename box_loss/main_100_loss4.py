@@ -19,12 +19,12 @@ import utils
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
 parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/all')
-parser.add_argument('--epoch', type=int, default=150)
+parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
-parser.add_argument('--gpu', type=str, default='3')
+parser.add_argument('--gpu', type=str, default='6')
 parser.add_argument('--dataset', type=str, default='')
-parser.add_argument('--query_algorithm', type=str, default='loss_005')
+parser.add_argument('--query_algorithm', type=str, default='loss4')
 parser.add_argument('--addendum', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--lr', type=float, default=0.01)
@@ -57,12 +57,12 @@ if __name__ == "__main__":
     selected = [i for i in range(0,15849)]
     trainset = ilsvrc30(args.data_path, 'train', selected)
     testset = ilsvrc30(args.data_path, 'val', [])
-    train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True)
-    test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False)
+    train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=4)
+    test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=4)
     
     model = ResNet18()
     linear = Linear(num_classes=30)
-    decoder = Decoder(output_size=224)
+    decoder = Decoder(output_size=256)
     model = model.to(device)
     linear = linear.to(device)
     decoder = decoder.to(device)
@@ -71,12 +71,12 @@ if __name__ == "__main__":
     Linear_optimizer = optim.SGD(linear.parameters(), lr=args.lr)
     Decoder_optimizer = optim.SGD(decoder.parameters(), lr=args.lr)
     
-    model_scheduler = MultiStepLR(model_optimizer, milestones=[50,100], gamma=0.1)
-    linear_scheduler = MultiStepLR(Linear_optimizer, milestones=[50,100], gamma=0.1)
-    Decoder_scheduler = MultiStepLR(Decoder_optimizer, milestones=[50,100], gamma=0.1)
+    model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)
+    linear_scheduler = MultiStepLR(Linear_optimizer, milestones=[30,80], gamma=0.1)
+    Decoder_scheduler = MultiStepLR(Decoder_optimizer, milestones=[30,80], gamma=0.1)
     
     classif_loss = nn.CrossEntropyLoss()
-    heatmap_loss = utils.heatmap_loss()
+    heatmap_loss = utils.heatmap_loss4()
     
     #train-------------------------------------------------------------------
     def train(epoch):

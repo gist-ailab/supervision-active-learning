@@ -58,8 +58,8 @@ if __name__ == "__main__":
     selected = []
     trainset = ilsvrc30(args.data_path, 'train', selected)
     testset = ilsvrc30(args.data_path, 'val', [])
-    train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True)
-    test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False)
+    train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=4)
+    test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=4)
     
     model = ResNet18()
     linear = Linear(num_classes=30)
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     linear = linear.to(device)
     decoder = decoder.to(device)
     
-    # model_para = torch.load('/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero/current/loss/98_74.450_model.pt')
+    # model_para = torch.load('/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero/seed2/loss/29_68.112_model.pt')
     # model.load_state_dict(model_para['model'])
     # linear.load_state_dict(model_para['linear'])
     # decoder.load_state_dict(model_para['decoder'])
@@ -77,11 +77,10 @@ if __name__ == "__main__":
     Linear_optimizer = optim.SGD(linear.parameters(), lr=args.lr)
     # Decoder_optimizer = optim.SGD(decoder.parameters(), lr=args.lr)
     
-    model_scheduler = MultiStepLR(model_optimizer, milestones=[50,100], gamma=0.1)
-    linear_scheduler = MultiStepLR(Linear_optimizer, milestones=[50,100], gamma=0.1)
+    model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)
+    linear_scheduler = MultiStepLR(Linear_optimizer, milestones=[30,80], gamma=0.1)
     
     classif_loss = nn.CrossEntropyLoss()
-    heatmap_loss = utils.heatmap_loss()
     
     #train-------------------------------------------------------------------
     def train(epoch):
