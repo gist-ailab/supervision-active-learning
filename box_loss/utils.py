@@ -221,10 +221,5 @@ class heatmap_loss4(nn.Module):
                 max_pred = torch.max(Y_pred[b_idx])
                 Y_g = Y_gt[b_idx]
                 Y_p = Y_pred[b_idx].clone()
-                Y_p = (Y_pred - min_pred)/(max_pred-min_pred)
-                Y_p = torch.where(Y_p>self.tr, 1, 0)
-                # print(torch.sum(Y_p))
-                Y_g = torch.where(Y_g>self.tr, 1, 0)
-                # print(torch.sum(Y_g))
                 total_loss += torch.sum((1-Y_g)*Y_p)/(torch.sum(Y_g*Y_p)+self.e)
-        return total_loss
+        return torch.log(total_loss)

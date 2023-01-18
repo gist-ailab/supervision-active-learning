@@ -32,11 +32,11 @@ class BasicBlock(nn.Module):
             )
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.bn2(self.conv2(out))
-        out += self.shortcut(x)
-        out = F.relu(out)
-        return out
+        out1 = F.relu(self.bn1(self.conv1(x)))
+        out2 = self.bn2(self.conv2(out1))
+        out3 = out2+self.shortcut(x)
+        out4 = F.relu(out3)
+        return out4
 
 
 class Bottleneck(nn.Module):
@@ -93,23 +93,66 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.layer1(out)
-        # feat1 = out.clone()
-        out = self.layer2(out)
-        # feat2 = out.clone()
-        out = self.layer3(out)
-        # feat3 = out.clone()
-        out = self.layer4(out)
-        feat4 = out
-        
-        # size = out.shape[-1]
-        # out = F.avg_pool2d(out, size)
-        # out = out.view(out.size(0), -1)
-        # out = self.linear(out)
-        # return out
-        return feat4
+        with torch.autograd.set_detect_anomaly(True):
+            out = F.relu(self.bn1(self.conv1(x)))
+            out1 = self.layer1(out)
+            out2 = self.layer2(out1)
+            out3 = self.layer3(out2)
+            out4 = self.layer4(out3)
+            
+            size = out4.shape[-1]
+            out5 = F.avg_pool2d(out4, size)
+            out6 = out5.view(out5.size(0), -1)
+            out7 = self.linear(out6)
+            return out7, out4
 
+class GradCamModel(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.gradients = None
+        self.tensorhook = []
+        self.layerhook = []
+        self.selected_out = None
+        
+        #PRETRAINED MODEL
+        self.model = model
+        # self.layerhook.append(self.model.layer4.register_forward_hook(self.forward_hook()))
+        # self.attach_hook()
+        
+        for p in self.model.parameters():
+            p.requires_grad = True
+    def attach_hook(self):
+        self.layerhook.append(self.model.layer4.register_forward_hook(self.forward_hook()))
+        
+    def detach_hook(self):
+        self.layerhook.clear()
+        self.tensorhook.clear()
+    
+    def activations_hook(self,grad):
+        self.gradients = grad
+
+    def get_act_grads(self):
+        return self.gradients
+
+    def forward_hook(self):
+        def hook(module, inp, out):
+            self.selected_out = out
+            self.tensorhook.append(out.register_hook(self.activations_hook))
+        return hook
+
+    def forward(self,x):
+        if self.model_training and len(self.layerhook):
+            self.attach_hook()
+        else:
+            self.detach_hook()
+        out = self.model(x)
+        return out, self.selected_out
+
+class BoxProposal(nn.Module):
+    def __init__(self, output_size=256):
+        super(BoxProposal, self).__init__()
+        pass
+    
 class Decoder(nn.Module):
     def __init__(self, output_size=256):
         super(Decoder, self).__init__()
@@ -158,8 +201,8 @@ class Linear(nn.Module):
         out = self.linear(out)
         return out
 
-def ResNet18():
-    return ResNet(BasicBlock, [2, 2, 2, 2])
+def ResNet18(num_classes):
+    return ResNet(BasicBlock, [2, 2, 2, 2], num_classes=num_classes)
 
 
 def ResNet34():

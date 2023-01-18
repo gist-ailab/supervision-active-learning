@@ -60,29 +60,19 @@ if __name__ == "__main__":
     train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=4)
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=4)
     
-    model = ResNet18()
-    linear = Linear(num_classes=30)
-    decoder = Decoder(output_size=256)
-    model = model.to(device)
-    linear = linear.to(device)
-    decoder = decoder.to(device)
+    model = ResNet18(num_classes=30)
+    gcam_model = GradCamModel(model)
+    gcam_model = model.to(device)
     
-    model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
-    Linear_optimizer = optim.SGD(linear.parameters(), lr=args.lr)
-    Decoder_optimizer = optim.SGD(decoder.parameters(), lr=args.lr)
-    
-    model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)
-    linear_scheduler = MultiStepLR(Linear_optimizer, milestones=[30,80], gamma=0.1)
-    Decoder_scheduler = MultiStepLR(Decoder_optimizer, milestones=[30,80], gamma=0.1)
+    gcam_model_optimizer = optim.SGD(gcam_model.parameters(), lr=args.lr)
+    gcam_model_scheduler = MultiStepLR(gcam_model_optimizer, milestones=[30,80], gamma=0.1)
     
     classif_loss = nn.CrossEntropyLoss()
     heatmap_loss = utils.heatmap_loss4()
     
     #train-------------------------------------------------------------------
     def train(epoch):
-        model.train()
-        linear.train()
-        decoder.train()
+        gcam_model.train()
         train_loss = 0
         correct = 0
         total = 0
@@ -91,24 +81,32 @@ if __name__ == "__main__":
         for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
             images, labels, heatmaps = images.to(device), labels.to(device), heatmaps.to(device)
             # print(device)
-            model_optimizer.zero_grad()
-            Linear_optimizer.zero_grad()
-            Decoder_optimizer.zero_grad()
+            gcam_model_optimizer.zero_grad()
+            outputs, acts = gcam_model(images)
+            acts2 = acts.clone()
             
-            feature = model(images)
-            outputs = linear(feature)
-            pred_hmap = decoder(feature)
+            loss_cls = classif_loss(outputs, labels)
+            loss_cls.backward(retain_graph=True)
+            grads = gcam_model.get_act_grads()
+            
+            pooled_grads = torch.mean(grads, dim=[0,2,3])
+            for i in range(acts2.shape[1]):
+                acts2[:,i,:,:] = acts2[:,i,:,:] + pooled_grads[i]
+            pred_hmap = torch.mean(acts2, dim=1).squeeze()
+            pred_hmap_max = pred_hmap.max(axis=0)[0]
+            pred_hmap = pred_hmap/pred_hmap_max
+            pred_hmap = pred_hmap.unsqueeze(dim=1)
+            # print(pred_hmap.shape)
+            pred_hmap = nn.functional.interpolate(pred_hmap, size=(256,256))
             pred_hmap = torch.sigmoid(pred_hmap)
-            pred_hmap = pred_hmap.squeeze()
             
-            loss_cls = classif_loss(outputs, labels) 
             loss_hmap = heatmap_loss(pred_hmap, heatmaps)
+            loss_cls = classif_loss(outputs, labels)
             # print(loss_cls, loss_hmap)
             loss = loss_cls + loss_hmap
+
             loss.backward()
-            model_optimizer.step()
-            Linear_optimizer.step()
-            Decoder_optimizer.step()
+            gcam_model_optimizer.step()
             
             train_loss += loss.item()
             _, predicted = outputs.max(1)
@@ -118,8 +116,7 @@ if __name__ == "__main__":
     
     #test---------------------------------------------------------------------
     def test(epoch, best_acc):
-        model.eval()
-        linear.eval()
+        gcam_model.eval()
         test_loss = 0
         correct = 0
         total = 0
@@ -127,8 +124,8 @@ if __name__ == "__main__":
             pbar = tqdm(test_loader)
             for idx, (images, labels, _, img_id) in enumerate(pbar):
                 images, labels = images.to(device), labels.to(device)
-                feature = model(images)
-                outputs = linear(feature)
+                outputs, _ = gcam_model(images)
+                
                 loss = classif_loss(outputs, labels)
                 
                 test_loss += loss.item()
@@ -138,7 +135,7 @@ if __name__ == "__main__":
                 pbar.set_postfix({'loss':test_loss/len(test_loader), 'acc':100*correct/total})
             acc = 100*correct/total
             if acc > best_acc:
-                torch.save({'model':model.state_dict(), 'linear':linear.state_dict(), 'decoder':decoder.state_dict()}, os.path.join(save_path,f'{epoch}_{acc:0.3f}_model.pt'))
+                torch.save({'model':model.state_dict()}, os.path.join(save_path,f'{epoch}_{acc:0.3f}_model.pt'))
                 best_acc = acc
             return best_acc 
     #------------------------------------------------------------------------------
@@ -146,6 +143,4 @@ if __name__ == "__main__":
     for i in range(0, args.epoch):
         train(i)
         best_acc = test(i, best_acc)
-        model_scheduler.step()
-        linear_scheduler.step()
-        Decoder_scheduler.step()
+        gcam_model_scheduler.step()
