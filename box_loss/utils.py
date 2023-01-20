@@ -212,14 +212,20 @@ class heatmap_loss4(nn.Module):
     
     def forward(self, Y_pred, Y_gt):
         total_loss = 0
+        N = 0
         for b_idx in range(len(Y_gt)):
             if len(Y_gt[b_idx]) == 0:
                 total_loss += 0
             else:
+                N += 1
                 gt = ((Y_gt[b_idx]==torch.max(Y_gt[b_idx])).nonzero())[0]
                 min_pred = torch.min(Y_pred[b_idx])
                 max_pred = torch.max(Y_pred[b_idx])
                 Y_g = Y_gt[b_idx]
                 Y_p = Y_pred[b_idx].clone()
-                total_loss += torch.sum((1-Y_g)*Y_p)/(torch.sum(Y_g*Y_p)+self.e)
-        return torch.log(total_loss)
+                positive = torch.sum(Y_g*Y_p)
+                negative = torch.sum((1-Y_g)*Y_p)
+                # print(positive, negative)
+                total_loss += negative/(positive+self.e)
+        if N == 0: N = 1
+        return total_loss/N

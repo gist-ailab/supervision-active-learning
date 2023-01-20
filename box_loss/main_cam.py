@@ -61,18 +61,17 @@ if __name__ == "__main__":
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=4)
     
     model = ResNet18(num_classes=30)
-    gcam_model = GradCamModel(model)
-    gcam_model = model.to(device)
+    model = model.to(device)
     
-    gcam_model_optimizer = optim.SGD(gcam_model.parameters(), lr=args.lr)
-    gcam_model_scheduler = MultiStepLR(gcam_model_optimizer, milestones=[30,80], gamma=0.1)
+    model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
+    model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)
     
     classif_loss = nn.CrossEntropyLoss()
     heatmap_loss = utils.heatmap_loss4()
     
     #train-------------------------------------------------------------------
     def train(epoch):
-        gcam_model.train()
+        model.train()
         train_loss = 0
         correct = 0
         total = 0
@@ -81,42 +80,41 @@ if __name__ == "__main__":
         for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
             images, labels, heatmaps = images.to(device), labels.to(device), heatmaps.to(device)
             # print(device)
-            gcam_model_optimizer.zero_grad()
-            outputs, acts = gcam_model(images)
-            acts2 = acts.clone()
+            model_optimizer.zero_grad()
+            outputs, acts = model(images)
+            _, predicted = outputs.max(1)
             
-            loss_cls = classif_loss(outputs, labels)
-            loss_cls.backward(retain_graph=True)
-            grads = gcam_model.get_act_grads()
-            
-            pooled_grads = torch.mean(grads, dim=[0,2,3])
-            for i in range(acts2.shape[1]):
-                acts2[:,i,:,:] = acts2[:,i,:,:] + pooled_grads[i]
-            pred_hmap = torch.mean(acts2, dim=1).squeeze()
-            pred_hmap_max = pred_hmap.max(axis=0)[0]
-            pred_hmap = pred_hmap/pred_hmap_max
-            pred_hmap = pred_hmap.unsqueeze(dim=1)
-            # print(pred_hmap.shape)
-            pred_hmap = nn.functional.interpolate(pred_hmap, size=(256,256))
-            pred_hmap = torch.sigmoid(pred_hmap)
-            
-            loss_hmap = heatmap_loss(pred_hmap, heatmaps)
-            loss_cls = classif_loss(outputs, labels)
-            # print(loss_cls, loss_hmap)
-            loss = loss_cls + loss_hmap
+            b,c,h,w = acts.shape
+            weight = list(model.parameters())[-2].data
+            beforDot = torch.reshape(acts, (b,c,h*w))
+            # weights = torch.stack([weight[i].unsqueeze(0) for i in predicted], dim=0)
+            weights = torch.stack([weight[i].unsqueeze(0) for i in labels], dim=0)
 
+            cam = torch.bmm(weights, beforDot)
+            cam = torch.reshape(cam, (b, h, w))
+            # print("1",cam.shape)
+            cam = torch.stack([cam[i]-torch.min(cam[i]) for i in range(b)], dim=0)
+            cam = torch.stack([cam[i]/torch.max(cam[i]) for i in range(b)], dim=0)
+            # print("2",cam.shape)
+            cam = cam.unsqueeze(dim=1)
+            pred_hmap = F.interpolate(cam, size=(256,256))
+            
+            loss_cls = classif_loss(outputs, labels)
+            loss_hmap = heatmap_loss(pred_hmap, heatmaps)
+            print(loss_cls, loss_hmap)
+            loss = loss_cls + (0.16*round((100-epoch)/20+0.49)+0.2)*loss_hmap
             loss.backward()
-            gcam_model_optimizer.step()
+            model_optimizer.step()
             
             train_loss += loss.item()
-            _, predicted = outputs.max(1)
+            
             total += labels.size(0)
             correct += predicted.eq(labels).sum().item()
             pbar.set_postfix({'loss':train_loss/len(train_loader), 'acc':100*correct/total})
     
     #test---------------------------------------------------------------------
     def test(epoch, best_acc):
-        gcam_model.eval()
+        model.eval()
         test_loss = 0
         correct = 0
         total = 0
@@ -124,7 +122,7 @@ if __name__ == "__main__":
             pbar = tqdm(test_loader)
             for idx, (images, labels, _, img_id) in enumerate(pbar):
                 images, labels = images.to(device), labels.to(device)
-                outputs, _ = gcam_model(images)
+                outputs, _ = model(images)
                 
                 loss = classif_loss(outputs, labels)
                 
@@ -143,4 +141,4 @@ if __name__ == "__main__":
     for i in range(0, args.epoch):
         train(i)
         best_acc = test(i, best_acc)
-        gcam_model_scheduler.step()
+        model_scheduler.step()

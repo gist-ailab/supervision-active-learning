@@ -125,8 +125,10 @@ class GradCamModel(nn.Module):
         self.layerhook.append(self.model.layer4.register_forward_hook(self.forward_hook()))
         
     def detach_hook(self):
-        self.layerhook.clear()
-        self.tensorhook.clear()
+        for layerhook in self.layerhook:
+            layerhook.remove()
+        for tensorhook in self.tensorhook:
+            tensorhook.remove()
     
     def activations_hook(self,grad):
         self.gradients = grad
@@ -141,8 +143,9 @@ class GradCamModel(nn.Module):
         return hook
 
     def forward(self,x):
-        if self.model_training and len(self.layerhook):
-            self.attach_hook()
+        if self.model.training:
+            if len(self.layerhook)==0:
+                self.attach_hook()
         else:
             self.detach_hook()
         out = self.model(x)
