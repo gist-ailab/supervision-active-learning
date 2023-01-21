@@ -13,12 +13,12 @@ from resnet import *
 import argparse
 import pickle
 import random
-from dataset import chestX, ilsvrc30
+from dataset import chestX, ilsvrc30, ilsvrc30_2
 import utils
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/chestx-det')
-parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/chestx_det/box_loss/all')
+parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
+parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/all_foreground')
 parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
@@ -26,7 +26,7 @@ parser.add_argument('--gpu', type=str, default='6')
 parser.add_argument('--dataset', type=str, default='')
 parser.add_argument('--query_algorithm', type=str, default='loss4')
 parser.add_argument('--addendum', type=int, default=1000)
-parser.add_argument('--batch_size', type=int, default=16)
+parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--lr', type=float, default=0.01)
 
 args = parser.parse_args()
@@ -54,17 +54,14 @@ if not os.path.isdir(save_path):
     os.mkdir(save_path)
     
 if __name__ == "__main__":
-    # selected = [i for i in range(0,15849)]
-    # trainset = ilsvrc30(args.data_path, 'train', selected)
-    # testset = ilsvrc30(args.data_path, 'val', [])
-    selected = [i for i in range(0,3001)]
-    trainset = chestX(args.data_path, 'train', selected)
-    testset = chestX(args.data_path, 'test', [])
+    selected = [i for i in range(0,15849)]
+    trainset = ilsvrc30_2(args.data_path, 'train', selected)
+    testset = ilsvrc30_2(args.data_path, 'val', [])
     
     train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=4)
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=4)
     
-    model = ResNet18(num_classes=10)
+    model = ResNet18(num_classes=30)
     model = model.to(device)
     
     model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
@@ -72,6 +69,21 @@ if __name__ == "__main__":
     
     classif_loss = nn.CrossEntropyLoss()
     heatmap_loss = utils.heatmap_loss4()
+    
+    def CAM(model, acts, predicted):
+        b,c,h,w = acts.shape
+        weight = list(model.parameters())[-2].data
+        beforDot = torch.reshape(acts, (b,c,h*w))
+        weights = torch.stack([weight[i].unsqueeze(0) for i in predicted], dim=0)
+        # weights = torch.stack([weight[i].unsqueeze(0) for i in labels], dim=0)
+
+        cam = torch.bmm(weights, beforDot)
+        cam = torch.reshape(cam, (b, h, w))
+        cam = torch.stack([cam[i]-torch.min(cam[i]) for i in range(b)], dim=0)
+        cam = torch.stack([cam[i]/torch.max(cam[i]) for i in range(b)], dim=0)
+        cam = cam.unsqueeze(dim=1)
+        pred_hmap = F.interpolate(cam, size=(256,256))
+        return pred_hmap
     
     #train-------------------------------------------------------------------
     def train(epoch):
@@ -81,33 +93,24 @@ if __name__ == "__main__":
         total = 0
         pbar = tqdm(train_loader)
         print(f'epoch : {epoch} _________________________________________________')
-        for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
-            images, labels, heatmaps = images.to(device), labels.to(device), heatmaps.to(device)
+        for idx, (images, labels, foreground, img_id) in enumerate(pbar):
+            images, labels, foregrounds = images.to(device), labels.to(device), foreground.to(device)
             # print(device)
             model_optimizer.zero_grad()
             outputs, acts = model(images)
+            outputs2, acts2 = model(foregrounds)
             _, predicted = outputs.max(1)
+            _, predicted2 = outputs2.max(1)
             
-            b,c,h,w = acts.shape
-            weight = list(model.parameters())[-2].data
-            beforDot = torch.reshape(acts, (b,c,h*w))
-            weights = torch.stack([weight[i].unsqueeze(0) for i in predicted], dim=0)
-            # weights = torch.stack([weight[i].unsqueeze(0) for i in labels], dim=0)
-
-            cam = torch.bmm(weights, beforDot)
-            cam = torch.reshape(cam, (b, h, w))
-            # print("1",cam.shape)
-            cam = torch.stack([cam[i]-torch.min(cam[i]) for i in range(b)], dim=0)
-            cam = torch.stack([cam[i]/torch.max(cam[i]) for i in range(b)], dim=0)
-            # print("2",cam.shape)
-            cam = cam.unsqueeze(dim=1)
-            pred_hmap = F.interpolate(cam, size=(256,256))
+            pred_hmap = CAM(model, acts, predicted)
+            pred_hmap2 = CAM(model, acts2, predicted2)
             
             # print(outputs.shape, labels.shape)
             loss_cls = classif_loss(outputs, labels)
-            loss_hmap = heatmap_loss(pred_hmap, heatmaps)
-            # print(loss_cls, loss_hmap)
-            loss = loss_cls + (0.16*round((100-epoch)/20+0.49)+0.2)*loss_hmap
+            loss_cls2 = classif_loss(outputs2, labels)
+            loss_hmap = heatmap_loss(pred_hmap, pred_hmap2)
+            # print(loss_cls, loss_cls2, loss_hmap)
+            loss = loss_cls + loss_cls2 + 20*loss_hmap
             loss.backward()
             model_optimizer.step()
             
