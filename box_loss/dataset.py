@@ -142,6 +142,7 @@ class ilsvrc30(Dataset):
                 final_heatmap = final_heatmap + heatmap
                 # final_heatmap = torch.sigmoid(final_heatmap)
             # final_heatmap = final_heatmap/(len(label_list)/5)
+            final_heatmap = torch.where(final_heatmap > 0, 1.0, 0.0)
             heatmap = final_heatmap
             # heatmap = heatmap[16:240,16:240]
         else:
@@ -168,15 +169,15 @@ class ilsvrc30(Dataset):
             ])
         return transform
     
-class ilsvrc30_2(Dataset):
+class ilsvrc100(Dataset):
     def __init__(self, path, mode, selected_list):
-        super(ilsvrc30_2, self).__init__()
+        super(ilsvrc100, self).__init__()
         self.path = path
         self.selected_list = selected_list
         if mode == 'train':self.mode = 'train'
         elif mode == 'val':self.mode = 'val'
         self.data_path = os.path.join(self.path, 'ILSVRC/Data/CLS-LOC', mode)
-        with open(os.path.join(self.path, f'LOC_{self.mode}_solution_30.csv'), newline='') as csvfile:
+        with open(os.path.join(self.path, f'LOC_{self.mode}_solution_100.csv'), newline='') as csvfile:
             csv_reader = csv.reader(csvfile)
             self.data_list = list(csv_reader)
             self.data_list = self.data_list[1:]
@@ -186,11 +187,16 @@ class ilsvrc30_2(Dataset):
         for x in range(256):
             for y in range(256):
                 self.base_heatmap[x,y,:] = torch.tensor([y,x])
-        self.label_class = {'n01440764' : 0,'n01443537' : 1,'n01484850' : 2,'n01491361' : 3,'n01494475' : 4,'n01496331' : 5,
-                            'n01498041' : 6,'n01514668' : 7,'n01514859' : 8,'n01518878' : 9,'n01530575' : 10,'n01531178' : 11,
-                            'n01532829' : 12,'n01534433' : 13,'n01537544' : 14,'n01558993' : 15,'n01560419' : 16,'n01580077' : 17,
-                            'n01582220' : 18,'n01592084' : 19,'n01601694' : 20,'n01608432' : 21,'n01614925' : 22,'n01616318' : 23,
-                            'n01622779' : 24,'n01629819' : 25,'n01630670' : 26,'n01631663' : 27,'n01632458' : 28,'n01632777' : 29}
+        
+        self.label_class = dict()
+        mapping = open(os.path.join(self.path, 'LOC_synset_mapping.txt'), 'r')
+        self.map = mapping.readlines()
+        idx = 0
+        for line in self.map:
+            label = line.split(' ')[0]
+            self.label_class[label] = idx
+            idx += 1
+        
     def __len__(self):
         return len(self.data_list)
     
@@ -233,14 +239,13 @@ class ilsvrc30_2(Dataset):
                 final_heatmap = final_heatmap + heatmap
                 # final_heatmap = torch.sigmoid(final_heatmap)
             # final_heatmap = final_heatmap/(len(label_list)/5)
+            final_heatmap = torch.where(final_heatmap > 0, 1.0, 0.0)
             heatmap = final_heatmap
             # heatmap = heatmap[16:240,16:240]
         else:
-            heatmap = torch.ones((256,256))
-        foreground = image * heatmap
-        # background = image * (1-heatmap)
+            heatmap = torch.zeros((256,256))
         
-        return (image, self.label_class[label], foreground, idx)
+        return (image, self.label_class[label], heatmap, idx)
     
     def imagenet_transform(self):
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])

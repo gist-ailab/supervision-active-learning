@@ -13,12 +13,12 @@ from resnet import *
 import argparse
 import pickle
 import random
-from dataset import chestX, ilsvrc30
+from dataset import chestX, ilsvrc30, ilsvrc100
 import utils
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
-parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero')
+parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet100/box_loss/zero')
 parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
@@ -56,37 +56,21 @@ if not os.path.isdir(save_path):
     
 if __name__ == "__main__":
     selected = []
-    trainset = ilsvrc30(args.data_path, 'train', selected)
-    testset = ilsvrc30(args.data_path, 'val', [])
+    trainset = ilsvrc100(args.data_path, 'train', selected)
+    testset = ilsvrc100(args.data_path, 'val', [])
     train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=4)
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=4)
     
-    model = ResNet18()
-    linear = Linear(num_classes=30)
-    decoder = Decoder(output_size=224)
+    model = ResNet18(num_classes=100)
     model = model.to(device)
-    linear = linear.to(device)
-    decoder = decoder.to(device)
-    
-    # model_para = torch.load('/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero/seed2/loss/29_68.112_model.pt')
-    # model.load_state_dict(model_para['model'])
-    # linear.load_state_dict(model_para['linear'])
-    # decoder.load_state_dict(model_para['decoder'])
     
     model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
-    Linear_optimizer = optim.SGD(linear.parameters(), lr=args.lr)
-    # Decoder_optimizer = optim.SGD(decoder.parameters(), lr=args.lr)
-    
     model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)
-    linear_scheduler = MultiStepLR(Linear_optimizer, milestones=[30,80], gamma=0.1)
-    
     classif_loss = nn.CrossEntropyLoss()
     
     #train-------------------------------------------------------------------
     def train(epoch):
         model.train()
-        linear.train()
-        decoder.train()
         train_loss = 0
         correct = 0
         total = 0
@@ -95,23 +79,12 @@ if __name__ == "__main__":
         for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
             images, labels, heatmaps = images.to(device), labels.to(device), heatmaps.to(device)
             model_optimizer.zero_grad()
-            Linear_optimizer.zero_grad()
-            # Decoder_optimizer.zero_grad()
-            feature = model(images)
-            outputs = linear(feature)
-            # pred_hmap = decoder(feature)
+            outputs, _ = model(images)
             
-            # print(torch.argmax(outputs, dim=-1))
-            
-            loss_cls = classif_loss(outputs, labels)
-            # print(loss_cls)
-            # loss_hmap = heatmap_loss(pred_hmap, heatmaps)
-            # loss = loss_cls + loss_hmap
-            loss = loss_cls
+            # print(labels)
+            loss = classif_loss(outputs, labels)
             loss.backward()
             model_optimizer.step()
-            Linear_optimizer.step()
-            # Decoder_optimizer.step()
             
             train_loss += loss.item()
             _, predicted = outputs.max(1)
@@ -122,7 +95,6 @@ if __name__ == "__main__":
     #test---------------------------------------------------------------------
     def test(epoch, best_acc):
         model.eval()
-        linear.eval()
         test_loss = 0
         correct = 0
         total = 0
@@ -130,8 +102,7 @@ if __name__ == "__main__":
             pbar = tqdm(test_loader)
             for idx, (images, labels, _, img_id) in enumerate(pbar):
                 images, labels = images.to(device), labels.to(device)
-                feature = model(images)
-                outputs = linear(feature)
+                outputs, _ = model(images)
                 loss = classif_loss(outputs, labels)
                 
                 test_loss += loss.item()
@@ -150,4 +121,3 @@ if __name__ == "__main__":
         train(i)
         best_acc = test(i, best_acc)
         model_scheduler.step()
-        linear_scheduler.step()

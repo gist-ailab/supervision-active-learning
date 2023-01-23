@@ -7,16 +7,16 @@ from tqdm import tqdm
 import numpy as np
 from resnet import *
 
-# torch.random.manual_seed(20230116)
+# torch.random.manual_seed(20230122)
 
 data_path = '/home/yunjae_heo/SSD/yunjae.heo/ILSVRC'
-# selected = [i for i in range(0,15849)]
-# trainset = ilsvrc30(data_path, 'train', selected)
-# train_loader = DataLoader(trainset, 1, drop_last=True, shuffle=True, num_workers=4)
+selected = [i for i in range(0,15849)]
+trainset = ilsvrc30(data_path, 'train', selected)
+test_loader = DataLoader(trainset, 1, drop_last=True, shuffle=True, num_workers=4)
 
-selected = [i for i in range(0,1500)]
-testset = ilsvrc30(data_path, 'val', selected)
-train_loader = DataLoader(testset, 1, drop_last=True, shuffle=True, num_workers=4)
+# selected = [i for i in range(0,1500)]
+# testset = ilsvrc30(data_path, 'val', selected)
+# test_loader = DataLoader(testset, 1, drop_last=True, shuffle=True, num_workers=4)
 
 # selected = [i for i in range(0,3001)]
 # trainset = chestX(data_path, 'train', selected)
@@ -24,7 +24,7 @@ train_loader = DataLoader(testset, 1, drop_last=True, shuffle=True, num_workers=
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '7'
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/all/seed5/loss4/83_75.784_model.pt'
+model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/all/seed0/loss5/92_64.843_model.pt'
 # model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero/seed2/loss/69_76.584_model.pt'
 model = ResNet18(num_classes=30)
 model = model.to(device)
@@ -34,7 +34,7 @@ model_para = torch.load(model_path)
 model.load_state_dict(model_para['model'])
 classif_loss = nn.CrossEntropyLoss()
 
-pbar = tqdm(train_loader)
+pbar = tqdm(test_loader)
 model.eval()
 for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
     images2 = torch.cat((images[:,2,:], images[:,1,:,:], images[:,0,:,:]), dim=0)
@@ -43,9 +43,11 @@ for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
     images = images.to(device)
     outputs, acts = model(images)
     
-    _, predicted = outputs.max(1)
+    outputs = torch.softmax(outputs, dim=-1)
+    conf, predicted = outputs.max(1)
+    print(conf)
     print(labels, predicted)
-    if not predicted.eq(labels).sum().item():
+    if predicted.eq(labels).sum().item():
         # print(labels, predicted)
         # print(predicted.eq(labels).sum().item())
         
@@ -70,12 +72,14 @@ for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
         save_image(pred_hmap, './temp_output_heatmap.png')
         break
 
-# pbar = tqdm(test_loader)
+
 # def test(epoch, best_acc):
 #         model.eval()
 #         test_loss = 0
 #         correct = 0
 #         total = 0
+#         max_loss = 0
+#         min_loss = 999
 #         with torch.no_grad():
 #             pbar = tqdm(test_loader)
 #             for idx, (images, labels, _, img_id) in enumerate(pbar):
@@ -83,6 +87,8 @@ for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
 #                 outputs, _ = model(images)
                 
 #                 loss = classif_loss(outputs, labels)
+#                 if max_loss < loss: max_loss = loss
+#                 if min_loss > loss: min_loss = loss
                 
 #                 test_loss += loss.item()
 #                 _, predicted = outputs.max(1)
@@ -91,6 +97,7 @@ for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
 #                 correct += predicted.eq(labels).sum().item()
 #                 pbar.set_postfix({'loss':test_loss/len(test_loader), 'acc':100*correct/total})
 #             acc = 100*correct/total
+#             print(max_loss, min_loss)
 #             return best_acc 
         
 # best_acc = 0

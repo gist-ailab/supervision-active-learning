@@ -24,7 +24,7 @@ parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--gpu', type=str, default='6')
 parser.add_argument('--dataset', type=str, default='')
-parser.add_argument('--query_algorithm', type=str, default='loss4')
+parser.add_argument('--query_algorithm', type=str, default='loss5')
 parser.add_argument('--addendum', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--lr', type=float, default=0.01)
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)
     
     classif_loss = nn.CrossEntropyLoss()
-    heatmap_loss = utils.heatmap_loss4()
+    heatmap_loss = utils.heatmap_loss5()
     
     #train-------------------------------------------------------------------
     def train(epoch):
@@ -103,6 +103,7 @@ if __name__ == "__main__":
             loss_hmap = heatmap_loss(pred_hmap, heatmaps)
             # print(loss_cls, loss_hmap)
             loss = loss_cls + 10*(0.16*round((100-epoch)/20+0.49)+0.2)*loss_hmap
+            loss = loss_cls + loss_hmap
             loss.backward()
             model_optimizer.step()
             

@@ -13,12 +13,12 @@ from resnet import *
 import argparse
 import pickle
 import random
-from dataset import chestX, ilsvrc30
+from dataset import chestX, ilsvrc30, ilsvrc100
 import utils
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
-parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/all')
+parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet100/box_loss/all')
 parser.add_argument('--epoch', type=int, default=120)
 parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
@@ -54,14 +54,14 @@ if not os.path.isdir(save_path):
     os.mkdir(save_path)
     
 if __name__ == "__main__":
-    selected = [i for i in range(0,15849)]
-    trainset = ilsvrc30(args.data_path, 'train', selected)
-    testset = ilsvrc30(args.data_path, 'val', [])
+    selected = [i for i in range(0,52372)]
+    trainset = ilsvrc100(args.data_path, 'train', selected)
+    testset = ilsvrc100(args.data_path, 'val', [])
     
     train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=4)
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=4)
     
-    model = ResNet18(num_classes=30)
+    model = ResNet18(num_classes=100)
     model = model.to(device)
     
     model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
@@ -76,6 +76,7 @@ if __name__ == "__main__":
         train_loss = 0
         correct = 0
         total = 0
+        alp = 10
         pbar = tqdm(train_loader)
         print(f'epoch : {epoch} _________________________________________________')
         for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
@@ -102,7 +103,9 @@ if __name__ == "__main__":
             loss_cls = classif_loss(outputs, labels)
             loss_hmap = heatmap_loss(pred_hmap, heatmaps)
             # print(loss_cls, loss_hmap)
-            loss = loss_cls + 10*(0.16*round((100-epoch)/20+0.49)+0.2)*loss_hmap
+            if idx%20==0:
+                alp = alp*0.8
+            loss = loss_cls + alp*loss_hmap
             loss.backward()
             model_optimizer.step()
             
