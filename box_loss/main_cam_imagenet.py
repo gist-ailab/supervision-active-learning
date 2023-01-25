@@ -13,7 +13,7 @@ from resnet import *
 import argparse
 import pickle
 import random
-from dataset import chestX, ilsvrc30
+from dataset import chestX, ilsvrc30, ilsvrc100
 import utils
 
 parser = argparse.ArgumentParser()
@@ -24,7 +24,7 @@ parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--gpu', type=str, default='6')
 parser.add_argument('--dataset', type=str, default='')
-parser.add_argument('--query_algorithm', type=str, default='loss5')
+parser.add_argument('--query_algorithm', type=str, default='loss4')
 parser.add_argument('--addendum', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--lr', type=float, default=0.01)
@@ -54,7 +54,7 @@ if not os.path.isdir(save_path):
     os.mkdir(save_path)
     
 if __name__ == "__main__":
-    selected = [i for i in range(0,15849)]
+    selected = [i for i in range(0,52372)]
     trainset = ilsvrc30(args.data_path, 'train', selected)
     testset = ilsvrc30(args.data_path, 'val', [])
     
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)
     
     classif_loss = nn.CrossEntropyLoss()
-    heatmap_loss = utils.heatmap_loss5()
+    heatmap_loss = utils.heatmap_loss4()
     
     #train-------------------------------------------------------------------
     def train(epoch):
@@ -76,6 +76,7 @@ if __name__ == "__main__":
         train_loss = 0
         correct = 0
         total = 0
+        alp = 20
         pbar = tqdm(train_loader)
         print(f'epoch : {epoch} _________________________________________________')
         for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
@@ -88,7 +89,7 @@ if __name__ == "__main__":
             b,c,h,w = acts.shape
             weight = list(model.parameters())[-2].data
             beforDot = torch.reshape(acts, (b,c,h*w))
-            weights = torch.stack([weight[i].unsqueeze(0) for i in predicted], dim=0)
+            weights = torch.stack([weight[i].unsqueeze(0) for i in labels], dim=0)
             # weights = torch.stack([weight[i].unsqueeze(0) for i in labels], dim=0)
 
             cam = torch.bmm(weights, beforDot)
@@ -100,10 +101,11 @@ if __name__ == "__main__":
             
             # print(outputs.shape, labels.shape)
             loss_cls = classif_loss(outputs, labels)
-            loss_hmap = heatmap_loss(pred_hmap, heatmaps)
-            # print(loss_cls, loss_hmap)
-            loss = loss_cls + 10*(0.16*round((100-epoch)/20+0.49)+0.2)*loss_hmap
-            loss = loss_cls + loss_hmap
+            loss_hmap = heatmap_loss(pred_hmap, heatmaps)    
+            if (idx+1)%10==0:
+                alp = alp*0.9
+            loss = loss_cls + alp*loss_hmap
+            # print(loss_cls, alp*loss_hmap)
             loss.backward()
             model_optimizer.step()
             

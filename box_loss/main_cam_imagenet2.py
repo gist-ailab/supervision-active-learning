@@ -18,8 +18,8 @@ import utils
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
-parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet100/box_loss/all')
-parser.add_argument('--epoch', type=int, default=120)
+parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/all')
+parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--episode', type=int, default=10)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--gpu', type=str, default='6')
@@ -55,13 +55,13 @@ if not os.path.isdir(save_path):
     
 if __name__ == "__main__":
     selected = [i for i in range(0,52372)]
-    trainset = ilsvrc100(args.data_path, 'train', selected)
-    testset = ilsvrc100(args.data_path, 'val', [])
+    trainset = ilsvrc30(args.data_path, 'train', selected)
+    testset = ilsvrc30(args.data_path, 'val', [])
     
     train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=4)
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=4)
     
-    model = ResNet18(num_classes=100)
+    model = ResNet18(num_classes=30)
     model = model.to(device)
     
     model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
@@ -76,7 +76,7 @@ if __name__ == "__main__":
         train_loss = 0
         correct = 0
         total = 0
-        alp = 10
+        alp = 20
         pbar = tqdm(train_loader)
         print(f'epoch : {epoch} _________________________________________________')
         for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
@@ -89,7 +89,7 @@ if __name__ == "__main__":
             b,c,h,w = acts.shape
             weight = list(model.parameters())[-2].data
             beforDot = torch.reshape(acts, (b,c,h*w))
-            weights = torch.stack([weight[i].unsqueeze(0) for i in predicted], dim=0)
+            weights = torch.stack([weight[i].unsqueeze(0) for i in labels], dim=0)
             # weights = torch.stack([weight[i].unsqueeze(0) for i in labels], dim=0)
 
             cam = torch.bmm(weights, beforDot)
@@ -101,11 +101,11 @@ if __name__ == "__main__":
             
             # print(outputs.shape, labels.shape)
             loss_cls = classif_loss(outputs, labels)
-            loss_hmap = heatmap_loss(pred_hmap, heatmaps)
-            # print(loss_cls, loss_hmap)
-            if idx%20==0:
+            loss_hmap = heatmap_loss(pred_hmap, heatmaps)    
+            if (idx+1)%20==0:
                 alp = alp*0.8
             loss = loss_cls + alp*loss_hmap
+            # print(loss_cls, alp*loss_hmap)
             loss.backward()
             model_optimizer.step()
             

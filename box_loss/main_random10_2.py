@@ -19,7 +19,7 @@ import copy
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
-parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500')
+parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/random_1500')
 parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--episode', type=int, default=5)
 parser.add_argument('--seed', type=int, default=None)
@@ -129,15 +129,10 @@ def test(epoch, best_acc):
 
 #data selection---------------------------------------------------------------------
 def select(episode, unselected, selected, avg_loss, K=150):
-    loss_arg = np.argsort(avg_loss)[::-1]
-    count = 0
-    for idx in loss_arg:
-        if idx in unselected:
-            np.delete(unselected, np.where(unselected==idx))
-            np.append(selected, idx)
-            count += 1
-        if count == K:
-            break
+    sample = np.random.choice(unselected, K, replace=False)
+    for idx in sample:
+        np.delete(unselected, np.where(unselected==idx))
+    np.append(selected, sample)
     np.save(os.path.join(save_path, f'episode{episode}_selected.txt'),selected)
 
 #-----------------------------------------------------------------------------------

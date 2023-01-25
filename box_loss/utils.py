@@ -227,7 +227,10 @@ class heatmap_loss4(nn.Module):
                 negative = torch.sum((1-Y_g)*Y_p)
                 total_loss += negative/(positive+self.e)
         if N == 0: N = 1
-        return torch.log(total_loss)/N
+        if total_loss == 0:
+            return 0.0
+        else:
+            return torch.log(total_loss)/N
     
 class heatmap_loss5(nn.Module):
     def __init__(self, a=1, b=1):
