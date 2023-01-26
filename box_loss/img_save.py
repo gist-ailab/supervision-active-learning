@@ -6,17 +6,18 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 import numpy as np
 from resnet import *
+from PIL import Image
 
-# torch.random.manual_seed(20230122)
+torch.random.manual_seed(20230126)
 
 data_path = '/home/yunjae_heo/SSD/yunjae.heo/ILSVRC'
-selected = [i for i in range(0,15849)]
-trainset = ilsvrc30(data_path, 'train', selected)
-test_loader = DataLoader(trainset, 1, drop_last=True, shuffle=True, num_workers=4)
+# selected = [i for i in range(0,15849)]
+# trainset = ilsvrc30(data_path, 'train', selected)
+# test_loader = DataLoader(trainset, 1, drop_last=True, shuffle=True, num_workers=4)
 
-# selected = [i for i in range(0,1500)]
-# testset = ilsvrc30(data_path, 'val', selected)
-# test_loader = DataLoader(testset, 1, drop_last=True, shuffle=True, num_workers=4)
+selected = [i for i in range(0,1500)]
+testset = ilsvrc30(data_path, 'val', selected)
+test_loader = DataLoader(testset, 1, drop_last=True, shuffle=True, num_workers=4)
 
 # selected = [i for i in range(0,3001)]
 # trainset = chestX(data_path, 'train', selected)
@@ -24,8 +25,9 @@ test_loader = DataLoader(trainset, 1, drop_last=True, shuffle=True, num_workers=
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '7'
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/all/seed0/loss5/92_64.843_model.pt'
-# model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero/seed2/loss/69_76.584_model.pt'
+model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/all/seed7/loss4/116_75.784_model.pt'
+# model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500/seed5/loss4/44_73.783_model.pt'
+# model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero/seed6/loss/47_73.983_model.pt'
 model = ResNet18(num_classes=30)
 model = model.to(device)
 

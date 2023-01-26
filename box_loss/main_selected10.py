@@ -21,7 +21,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
 parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500')
 parser.add_argument('--epoch', type=int, default=100)
-parser.add_argument('--episode', type=int, default=5)
+parser.add_argument('--episode', type=int, default=11)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--gpu', type=str, default='6')
 parser.add_argument('--dataset', type=str, default='')
@@ -60,7 +60,7 @@ def train(epoch, avg_loss):
     train_loss = 0
     correct = 0
     total = 0
-    alp = 40
+    alp = 20
     pbar = tqdm(train_loader)
     print(f'epoch : {epoch} _________________________________________________')
     for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
@@ -90,7 +90,7 @@ def train(epoch, avg_loss):
         #-----------------------------------------------
         loss_hmap = heatmap_loss(pred_hmap, heatmaps)    
         if (idx+1)%20==0:
-            alp = alp*0.9
+            alp = alp*0.8
         loss = loss_cls + alp*loss_hmap
         # print(loss_cls, alp*loss_hmap)
         loss.backward()
@@ -161,8 +161,8 @@ if __name__ == "__main__":
         trainset = ilsvrc30(args.data_path, 'train', selected)
         testset = ilsvrc30(args.data_path, 'val', [])
         
-        train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=4)
-        test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=4)
+        train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=2)
+        test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=2)
         
         avg_loss = np.array([0.0 for i in range(len(train_loader.dataset))])
         #------------------------------------------------------------------------------

@@ -116,7 +116,7 @@ class ilsvrc30(Dataset):
         if type(image)==None:
             print(image_path)
         height,width,_ = image.shape
-        # image2 = self.transform2(image)
+        image2 = self.transform2(image)
         image = self.transform(image)
         
         if idx in self.selected_list:            

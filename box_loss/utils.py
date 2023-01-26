@@ -218,11 +218,10 @@ class heatmap_loss4(nn.Module):
                 total_loss += torch.tensor([0])
             else:
                 N += 1
-                gt = ((Y_gt[b_idx]==torch.max(Y_gt[b_idx])).nonzero())[0]
-                min_pred = torch.min(Y_pred[b_idx])
-                max_pred = torch.max(Y_pred[b_idx])
                 Y_g = Y_gt[b_idx]
                 Y_p = Y_pred[b_idx].clone()
+                print(torch.max(Y_p))
+                print(torch.min(Y_p[Y_p>0]))
                 positive = torch.sum(Y_g*Y_p)
                 negative = torch.sum((1-Y_g)*Y_p)
                 total_loss += negative/(positive+self.e)
@@ -231,12 +230,49 @@ class heatmap_loss4(nn.Module):
             return 0.0
         else:
             return torch.log(total_loss)/N
-    
+
+def get_box_pos(heatmap, T):
+    Y_g = torch.where(heatmap > T, heatmap, 0)
+    for i in range(len(Y_g)):
+        if torch.sum(Y_g[i]) > 0:
+            left = i
+            break
+    for i in range(len(Y_g)):
+        if torch.sum(Y_g[len(Y_g)-1-i]) > 0:
+            right = i
+            break
+    for i in range(len(Y_g[0])):
+        if torch.sum(Y_g[:,i]) > 0:
+            up = i
+            break
+    for i in range(len(Y_g[0])):
+        if torch.sum(Y_g[:,len(Y_g[0])-1-i]) > 0:
+            down = i
+            break
+    x_r = (right-left)//2
+    y_r = (down-up)//2
+    radi = torch.tensor([x_r, y_r])
+    gt = torch.tensor([left + x_r, up+y_r])
+    return radi, gt
+
+def make_heatmap(radi, gt, sigma = 1/3):
+    heatmap = torch.zeros((256,256,2))
+    for x in range(256):
+        for y in range(256):
+            heatmap[x,y,:] = torch.tensor([y,x])
+    heatmap = (heatmap - gt)/radi
+    heatmap = heatmap * heatmap
+    heatmap = heatmap * heatmap
+    heatmap = torch.sum(heatmap, dim=-1)
+    heatmap = -1*heatmap/(2*sigma)**2
+    heatmap = torch.exp(heatmap)
+    heatmap = torch.where(heatmap > 0.1, 1.0, 0.0)
+    return heatmap
+
 class heatmap_loss5(nn.Module):
-    def __init__(self, a=1, b=1):
+    def __init__(self, a=1):
         super(heatmap_loss5, self).__init__()
         self.a = a
-        self.b = b
         self.e = 1e-6
         self.tr = 0.1
     
@@ -244,18 +280,21 @@ class heatmap_loss5(nn.Module):
         total_loss = 0
         N = 0
         for b_idx in range(len(Y_gt)):
+            N += 1
+            Y_p = Y_pred[b_idx].clone()
+            
             if torch.max(Y_gt[b_idx])==0:
-                total_loss += torch.tensor([0])
+                radi, gt = get_box_pos(Y_p, T=0.5)
+                Y_g = make_heatmap(radi, gt)
+                save_image(Y_g, './Y_g_heatmap.png')
             else:
-                N += 1
-                gt = ((Y_gt[b_idx]==torch.max(Y_gt[b_idx])).nonzero())[0]
                 Y_g = Y_gt[b_idx]
-                min_gt = torch.min(Y_g)
-                max_gt = torch.max(Y_g)
-                Y_g = (Y_g - min_gt)/(max_gt - min_gt)
-                Y_p = Y_pred[b_idx].clone()
-                positive = -1*torch.log(torch.sum(Y_g*Y_p)/(torch.sum(Y_p)+self.e)+self.e)
-                negative = -1*torch.log(torch.sum((1-Y_g)*Y_p)/(torch.sum(Y_p)+self.e)+self.e)
-                total_loss += negative/(positive+self.e)
+            
+            positive = torch.sum(Y_g*Y_p)
+            negative = torch.sum((1-Y_g)*Y_p)
+            total_loss += negative/(positive+self.e)
         if N == 0: N = 1
-        return total_loss/N
+        if total_loss == 0:
+            return 0.0
+        else:
+            return torch.log(total_loss)/N
