@@ -170,8 +170,15 @@ if __name__ == "__main__":
         best_acc = test(i, best_acc)
         model_scheduler.step()
         if i % 10 == 0 and epi_count < args.episode:
-            select(episode, unselected, selected, avg_loss, K=1500) 
             epi_count += 1
+            select(episode, unselected, selected, avg_loss, K=1500)
+            
+            trainset = ilsvrc30(args.data_path, 'train', selected)
+            testset = ilsvrc30(args.data_path, 'val', [])
+            
+            train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=2)
+            test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=2)
+            
             avg_loss = np.array([0.0 for i in range(len(train_loader.dataset))])
     #------------------------------------------------------------------------------
     

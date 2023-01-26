@@ -5,6 +5,7 @@ import numpy as np
 import torchvision.transforms as transforms
 from tqdm import tqdm
 from resnet import *
+from torchvision.utils import save_image
 
 def get_rand_augment(dataset):
     if dataset == 'cifar10':
@@ -220,8 +221,6 @@ class heatmap_loss4(nn.Module):
                 N += 1
                 Y_g = Y_gt[b_idx]
                 Y_p = Y_pred[b_idx].clone()
-                print(torch.max(Y_p))
-                print(torch.min(Y_p[Y_p>0]))
                 positive = torch.sum(Y_g*Y_p)
                 negative = torch.sum((1-Y_g)*Y_p)
                 total_loss += negative/(positive+self.e)
@@ -284,9 +283,12 @@ class heatmap_loss5(nn.Module):
             Y_p = Y_pred[b_idx].clone()
             
             if torch.max(Y_gt[b_idx])==0:
-                radi, gt = get_box_pos(Y_p, T=0.5)
+                radi, gt = get_box_pos(Y_p, T=0.1)
                 Y_g = make_heatmap(radi, gt)
-                save_image(Y_g, './Y_g_heatmap.png')
+                print(torch.max(Y_g))
+                print(torch.min(Y_g))
+                print(torch.sum(Y_g))
+                save_image(Y_g, 'C:/Users/USER/Desktop/LBA/Y_g_heatmap.png')
             else:
                 Y_g = Y_gt[b_idx]
             

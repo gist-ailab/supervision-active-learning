@@ -105,7 +105,7 @@ if __name__ == "__main__":
             if (idx+1)%10==0:
                 alp = alp*0.9
             loss = loss_cls + alp*loss_hmap
-            # print(loss_cls, alp*loss_hmap)
+            print(loss_cls, alp*loss_hmap)
             loss.backward()
             model_optimizer.step()
             
