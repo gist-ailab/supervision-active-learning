@@ -169,9 +169,8 @@ if __name__ == "__main__":
         train(i, avg_loss)
         best_acc = test(i, best_acc)
         model_scheduler.step()
-        if i % 10 == 0 and epi_count < args.episode:
-            epi_count += 1
-            select(episode, unselected, selected, avg_loss, K=1500)
+        if i == 30:
+            select(episode, unselected, selected, avg_loss, K=7500)
             
             trainset = ilsvrc30(args.data_path, 'train', selected)
             testset = ilsvrc30(args.data_path, 'val', [])

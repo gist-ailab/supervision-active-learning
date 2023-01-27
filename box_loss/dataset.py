@@ -11,6 +11,7 @@ import csv
 import xml.etree.ElementTree as ET
 import cv2
 import numpy as np
+import copy
 
 class chestX(Dataset):
     def __init__(self, path, mode, selected_list):
@@ -18,17 +19,14 @@ class chestX(Dataset):
         self.selected_list = selected_list
         if mode == 'train':self.mode = 'train'
         elif mode == 'test':self.mode = 'test'
-        self.json_path = os.path.join(self.path, 'annotations', f'chestx-det_{self.mode}.json')
+        self.label_path = os.path.join(self.path, 'annotations', f'chestx_multi_label_{self.mode}.json')
         self.filedir_path = os.path.join(self.path, f'{self.mode}_data')
         
         with open(self.json_path, 'r', encoding='utf-8') as f:
-            jsonfile = json.load(f)
+            labelfile = f.readlines()
+            self.labelfile = copy.deepcopy(labelfile)
         
-        self.categories = jsonfile["categories"]
-        self.images = jsonfile["images"]
-        self.boxes = jsonfile["annotations"]
-        self.transform = self.imagenet_transform()
-        self.downsample = transforms.Resize(256)
+        self.transform = self.chestx_transform()
         self.base_heatmap = torch.zeros((256,256,2))
         for x in range(256):
             for y in range(256):
@@ -38,41 +36,38 @@ class chestX(Dataset):
         return len(self.images)
     
     def __getitem__(self, idx):
-        file_path = os.path.join(self.filedir_path, self.images[idx]["file_name"])
+        filename, labels = self.labelfile[idx].split(',')[0], self.labelfile[idx].split(',')[1:]
+        file_path = os.path.join(self.filedir_path, filename)
         image = cv2.imread(file_path)
         image = self.transform(image)
         
-        # image = image.permute(2,0,1)
-        label = self.boxes[idx]["category_id"]
         temp = torch.zeros(10)
-        temp[label-1] = 1
-        label = torch.argmax(temp)
-        img_id = idx+1
-        # print(self.selected_list)
-        if img_id in self.selected_list:
-            bbox_loc = self.boxes[idx]["bbox"]
-            bbox_loc = torch.tensor(bbox_loc) * (256/1024)
-            heatmap = torch.clone(self.base_heatmap)
-            radi = torch.tensor([bbox_loc[2]/2, bbox_loc[3]/2])
-            sigma = 1/2
-            gt = torch.tensor([bbox_loc[0]+bbox_loc[2]/2, bbox_loc[1]+bbox_loc[3]/2])
-            heatmap = (heatmap - gt)/radi
-            heatmap = heatmap * heatmap
-            heatmap = torch.sum(heatmap, dim=-1)
-            heatmap = -1*heatmap/(2*sigma)**2
-            heatmap = torch.exp(heatmap)
-            heatmap = torch.where(heatmap > 0.1, 1.0, 0.0)
-        else:
-            heatmap = torch.zeros((256,256))
+        for lbl in labels:
+            cls_idx = lbl.split(' ')[0]
+            temp[cls_idx-1] = 1
+        label = temp
         
+        if idx in self.selected_list:
+            heatmaps = torch.zeros([10,256,256])
+            for anno in labels:
+                clss, x1, y1, x2, y2 = lbl.split(' ')
+                bbox_loc = torch.tensor([x1,y1,x2,y2]) * (256/1024)
+                radi = torch.tensor([bbox_loc[2]/2, bbox_loc[3]/2])
+                sigma = 1/2
+                gt = torch.tensor([bbox_loc[0]+bbox_loc[2]/2, bbox_loc[1]+bbox_loc[3]/2])
+                heatmap = (heatmap - gt)/radi
+                heatmap = heatmap * heatmap
+                heatmap = torch.sum(heatmap, dim=-1)
+                heatmap = -1*heatmap/(2*sigma)**2
+                heatmap = torch.exp(heatmap)
+                heatmaps[clss] += heatmap
+                heatmaps[clss] = torch.where(heatmap[clss] > 0.1, 1.0, 0.0)
         # print(heatmap)
-        return (image, label, heatmap, img_id)
+        return (image, label, heatmaps, img_id)
     
-    def imagenet_transform(self):
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
+    def chestx_transform(self):
         transform = transforms.Compose(
             [transforms.ToPILImage(),
-             transforms.Resize((512,512)),
              transforms.ToTensor(),
             ])
         return transform

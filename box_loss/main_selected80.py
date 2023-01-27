@@ -19,7 +19,7 @@ import copy
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
-parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_7500')
+parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_12000')
 parser.add_argument('--epoch', type=int, default=100)
 parser.add_argument('--episode', type=int, default=5)
 parser.add_argument('--seed', type=int, default=None)
@@ -171,7 +171,7 @@ if __name__ == "__main__":
         model_scheduler.step()
         if i % 10 == 0 and epi_count < args.episode:
             epi_count += 1
-            select(episode, unselected, selected, avg_loss, K=1500)
+            select(episode, unselected, selected, avg_loss, K=2400)
             
             trainset = ilsvrc30(args.data_path, 'train', selected)
             testset = ilsvrc30(args.data_path, 'val', [])
