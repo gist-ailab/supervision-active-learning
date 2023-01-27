@@ -1,6 +1,3 @@
-# README TEMPLATES
-- @@
-
 ## Updates & TODO Lists
 - @@
 
