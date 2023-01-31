@@ -285,10 +285,6 @@ class heatmap_loss5(nn.Module):
             if torch.max(Y_gt[b_idx])==0:
                 radi, gt = get_box_pos(Y_p, T=0.1)
                 Y_g = make_heatmap(radi, gt)
-                print(torch.max(Y_g))
-                print(torch.min(Y_g))
-                print(torch.sum(Y_g))
-                save_image(Y_g, 'C:/Users/USER/Desktop/LBA/Y_g_heatmap.png')
             else:
                 Y_g = Y_gt[b_idx]
             
@@ -300,3 +296,54 @@ class heatmap_loss5(nn.Module):
             return 0.0
         else:
             return torch.log(total_loss)/N
+        
+class multi_heatmap_loss(nn.Module):
+    def __init__(self, a=1):
+        super(multi_heatmap_loss, self).__init__()
+        self.a = a
+        self.e = 1e-6
+        self.tr = 0.1
+    
+    def forward(self, Y_pred, Y_gt):
+        total_loss = 0
+        N = 0
+        for b_idx in range(len(Y_gt)):
+            if not torch.max(Y_gt[b_idx])==0:
+                N += 1
+                for clss in range(len(Y_gt[b_idx])):
+                    curr_loss = 0
+                    if torch.max(Y_gt[b_idx,clss])==0:
+                        curr_loss += torch.tensor([0])
+                    else:
+                        Y_g = Y_gt[b_idx,clss]
+                        Y_p = Y_pred[b_idx,clss].clone()
+                        positive = torch.sum(Y_g*Y_p)
+                        negative = torch.sum((1-Y_g)*Y_p)
+                        curr_loss += negative/(positive+self.e)
+                    total_loss += curr_loss
+        if N == 0: N = 1
+        if total_loss == 0:
+            return 0.0
+        else:
+            return torch.log(total_loss)/N
+        
+class F1_score(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.epsilon = 1e-7
+        self.tr = 0.5
+        
+    def forward(self, y_outputs, y_gt):
+        y_pred = torch.softmax(y_outputs, dim=-1)
+        y_pred = torch.where(y_pred>self.tr, 1, 0)
+        
+        TP = torch.sum(y_pred*y_gt)
+        TN = torch.sum((1-y_pred)*(1-y_gt))
+        FP = torch.sum(y_pred*(1-y_gt))
+        FN = torch.sum((1-y_pred)*y_gt)
+        
+        precision = TP / (TP + FP + self.epsilon)
+        recall = TP / (TP + FN + self.epsilon)
+        
+        f1 = 2 * (precision*recall) / (precision + recall + self.epsilon)
+        return f1.item()

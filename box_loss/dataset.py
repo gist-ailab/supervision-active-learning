@@ -19,10 +19,10 @@ class chestX(Dataset):
         self.selected_list = selected_list
         if mode == 'train':self.mode = 'train'
         elif mode == 'test':self.mode = 'test'
-        self.label_path = os.path.join(self.path, 'annotations', f'chestx_multi_label_{self.mode}.json')
+        self.label_path = os.path.join(self.path, 'annotations', f'chestx_multi_label_{self.mode}.txt')
         self.filedir_path = os.path.join(self.path, f'{self.mode}_data')
         
-        with open(self.json_path, 'r', encoding='utf-8') as f:
+        with open(self.label_path, 'r', encoding='utf-8') as f:
             labelfile = f.readlines()
             self.labelfile = copy.deepcopy(labelfile)
         
@@ -33,7 +33,7 @@ class chestX(Dataset):
                 self.base_heatmap[x,y,:] = torch.tensor([x,y])
         
     def __len__(self):
-        return len(self.images)
+        return len(self.labelfile)
     
     def __getitem__(self, idx):
         filename, labels = self.labelfile[idx].split(',')[0], self.labelfile[idx].split(',')[1:]
@@ -43,14 +43,18 @@ class chestX(Dataset):
         
         temp = torch.zeros(10)
         for lbl in labels:
-            cls_idx = lbl.split(' ')[0]
+            if lbl == '\n':
+                continue
+            # print(lbl.split(' '))
+            cls_idx = int(lbl.split(' ')[0])
             temp[cls_idx-1] = 1
         label = temp
         
         if idx in self.selected_list:
             heatmaps = torch.zeros([10,256,256])
             for anno in labels:
-                clss, x1, y1, x2, y2 = lbl.split(' ')
+                clss, x1, y1, x2, y2 = anno.split(' ')
+                clss, x1, y1, x2, y2 = int(clss), int(x1), int(y1), int(x2), int(y2)
                 bbox_loc = torch.tensor([x1,y1,x2,y2]) * (256/1024)
                 radi = torch.tensor([bbox_loc[2]/2, bbox_loc[3]/2])
                 sigma = 1/2
@@ -63,11 +67,14 @@ class chestX(Dataset):
                 heatmaps[clss] += heatmap
                 heatmaps[clss] = torch.where(heatmap[clss] > 0.1, 1.0, 0.0)
         # print(heatmap)
-        return (image, label, heatmaps, img_id)
+        else:
+            heatmaps = torch.zeros([10,256,256])
+        return (image, label, heatmaps, idx)
     
     def chestx_transform(self):
         transform = transforms.Compose(
             [transforms.ToPILImage(),
+             transforms.Resize((512,512)),
              transforms.ToTensor(),
             ])
         return transform

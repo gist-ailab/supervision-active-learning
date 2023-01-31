@@ -8,7 +8,7 @@ import numpy as np
 from resnet import *
 from PIL import Image
 
-torch.random.manual_seed(20230126)
+torch.random.manual_seed(20230151)
 
 data_path = '/home/yunjae_heo/SSD/yunjae.heo/ILSVRC'
 # selected = [i for i in range(0,15849)]
@@ -23,11 +23,11 @@ test_loader = DataLoader(testset, 1, drop_last=True, shuffle=True, num_workers=4
 # trainset = chestX(data_path, 'train', selected)
 # train_loader = DataLoader(trainset, 32, drop_last=True, shuffle=True, num_workers=4)
 
-os.environ["CUDA_VISIBLE_DEVICES"] = '7'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/all/seed7/loss4/116_75.784_model.pt'
-# model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500/seed5/loss4/44_73.783_model.pt'
-# model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero/seed6/loss/47_73.983_model.pt'
+# model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/all/seed7/loss4/116_75.784_model.pt'
+model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_7500/seed5/loss4/34_73.582_model.pt'
+# model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero/seed5/loss/32_74.183_model.pt'
 model = ResNet18(num_classes=30)
 model = model.to(device)
 
@@ -49,30 +49,30 @@ for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
     conf, predicted = outputs.max(1)
     print(conf)
     print(labels, predicted)
-    if predicted.eq(labels).sum().item():
+    # if predicted.eq(labels).sum().item():
         # print(labels, predicted)
         # print(predicted.eq(labels).sum().item())
         
-        save_image(heatmaps, './temp_heatmap.png')
-        save_image(images2, './temp_img.png')
-        
-        b,c,h,w = acts.shape
-        weight = list(model.parameters())[-2].data
-        beforDot = torch.reshape(acts, (b,c,h*w))
-        weights = torch.stack([weight[i].unsqueeze(0) for i in predicted], dim=0)
+    save_image(heatmaps, './temp_heatmap.png')
+    save_image(images2, './temp_img.png')
+    
+    b,c,h,w = acts.shape
+    weight = list(model.parameters())[-2].data
+    beforDot = torch.reshape(acts, (b,c,h*w))
+    weights = torch.stack([weight[i].unsqueeze(0) for i in predicted], dim=0)
 
-        cam = torch.bmm(weights, beforDot)
-        cam = torch.reshape(cam, (b, h, w))
-        # print("1",cam.shape)
-        cam = torch.stack([cam[i]-torch.min(cam[i]) for i in range(b)], dim=0)
-        cam = torch.stack([cam[i]/torch.max(cam[i]) for i in range(b)], dim=0)
-        # print("2",cam.shape)
-        cam = cam.unsqueeze(dim=0)
-        # cam = cam.unsqueeze(dim=0)
-        pred_hmap = F.interpolate(cam, size=(256,256))
-        # save_image(heatmap_output, './temp_output_heatmap.png')
-        save_image(pred_hmap, './temp_output_heatmap.png')
-        break
+    cam = torch.bmm(weights, beforDot)
+    cam = torch.reshape(cam, (b, h, w))
+    # print("1",cam.shape)
+    cam = torch.stack([cam[i]-torch.min(cam[i]) for i in range(b)], dim=0)
+    cam = torch.stack([cam[i]/torch.max(cam[i]) for i in range(b)], dim=0)
+    # print("2",cam.shape)
+    cam = cam.unsqueeze(dim=0)
+    # cam = cam.unsqueeze(dim=0)
+    pred_hmap = F.interpolate(cam, size=(256,256))
+    # save_image(heatmap_output, './temp_output_heatmap.png')
+    save_image(pred_hmap, './temp_output_heatmap.png')
+    break
 
 
 # def test(epoch, best_acc):

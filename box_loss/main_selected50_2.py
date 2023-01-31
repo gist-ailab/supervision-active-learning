@@ -60,7 +60,7 @@ def train(epoch, avg_loss):
     train_loss = 0
     correct = 0
     total = 0
-    alp = 10
+    alp = 20
     pbar = tqdm(train_loader)
     print(f'epoch : {epoch} _________________________________________________')
     for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
@@ -89,7 +89,7 @@ def train(epoch, avg_loss):
         avg_loss[img_id] += loss_cls.item()
         #-----------------------------------------------
         loss_hmap = heatmap_loss(pred_hmap, heatmaps)    
-        if (idx+1)%20==0:
+        if (idx+1)%10==0:
             alp = alp*0.9
         loss = loss_cls + alp*loss_hmap
         # print(loss_cls, alp*loss_hmap)
@@ -169,7 +169,7 @@ if __name__ == "__main__":
         train(i, avg_loss)
         best_acc = test(i, best_acc)
         model_scheduler.step()
-        if i == 30:
+        if i == 0:
             select(episode, unselected, selected, avg_loss, K=7500)
             
             trainset = ilsvrc30(args.data_path, 'train', selected)

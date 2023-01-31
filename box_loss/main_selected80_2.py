@@ -60,7 +60,7 @@ def train(epoch, avg_loss):
     train_loss = 0
     correct = 0
     total = 0
-    alp = 10
+    alp = 12.5
     pbar = tqdm(train_loader)
     print(f'epoch : {epoch} _________________________________________________')
     for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
@@ -89,7 +89,7 @@ def train(epoch, avg_loss):
         avg_loss[img_id] += loss_cls.item()
         #-----------------------------------------------
         loss_hmap = heatmap_loss(pred_hmap, heatmaps)    
-        if (idx+1)%20==0:
+        if (idx+1)%10==0:
             alp = alp*0.9
         loss = loss_cls + alp*loss_hmap
         # print(loss_cls, alp*loss_hmap)
@@ -130,14 +130,19 @@ def test(epoch, best_acc):
 #data selection---------------------------------------------------------------------
 def select(episode, unselected, selected, avg_loss, K=150):
     loss_arg = np.argsort(avg_loss)[::-1]
+    # print(loss_arg)
+    # print(unselected)
+    # print(len(unselected))
     count = 0
     for idx in loss_arg:
         if idx in unselected:
             np.delete(unselected, np.where(unselected==idx))
-            np.append(selected, idx)
+            selected = np.append(selected, idx)
             count += 1
         if count == K:
             break
+    # print(len(unselected))
+    # print(selected)
     np.save(os.path.join(save_path, f'episode{episode}_selected.txt'),selected)
 
 #-----------------------------------------------------------------------------------
@@ -169,7 +174,10 @@ if __name__ == "__main__":
         train(i, avg_loss)
         best_acc = test(i, best_acc)
         model_scheduler.step()
-        if i == 30:
+        if i==0:
+            # if i == 0:
+            #     avg_loss = avg_loss + np.random.rand(15849)
+            #     # print(avg_loss)
             epi_count += 1
             select(episode, unselected, selected, avg_loss, K=12000)
             

@@ -16,19 +16,21 @@ import random
 from dataset import chestX, ilsvrc30, ilsvrc100
 import utils
 import copy
+from sklearn.metrics import f1_score
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
-parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500')
+parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/chestx-det')
+parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/chestx_det/box_loss/all')
 parser.add_argument('--epoch', type=int, default=100)
-parser.add_argument('--episode', type=int, default=11)
+parser.add_argument('--episode', type=int, default=5)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--gpu', type=str, default='6')
 parser.add_argument('--dataset', type=str, default='')
 parser.add_argument('--query_algorithm', type=str, default='loss4')
 parser.add_argument('--addendum', type=int, default=1000)
-parser.add_argument('--batch_size', type=int, default=32)
+parser.add_argument('--batch_size', type=int, default=8)
 parser.add_argument('--lr', type=float, default=0.01)
+parser.add_argument('--num_classes', type=int, default=10)
 
 args = parser.parse_args()
 
@@ -60,7 +62,9 @@ def train(epoch, avg_loss):
     train_loss = 0
     correct = 0
     total = 0
-    alp = 100
+    alp = 10
+    threshold = 0.5
+    F1 = utils.F1_score()
     pbar = tqdm(train_loader)
     print(f'epoch : {epoch} _________________________________________________')
     for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
@@ -68,19 +72,22 @@ def train(epoch, avg_loss):
         # print(device)
         model_optimizer.zero_grad()
         outputs, acts = model(images)
-        _, predicted = outputs.max(1)
         
         b,c,h,w = acts.shape
         weight = list(model.parameters())[-2].data
         beforDot = torch.reshape(acts, (b,c,h*w))
-        weights = torch.stack([weight[i].unsqueeze(0) for i in labels], dim=0)
+        weights = torch.stack([weight for i in labels], dim=0)
+        # print(weights.shape)
         # weights = torch.stack([weight[i].unsqueeze(0) for i in labels], dim=0)
 
         cam = torch.bmm(weights, beforDot)
-        cam = torch.reshape(cam, (b, h, w))
-        cam = torch.stack([cam[i]-torch.min(cam[i]) for i in range(b)], dim=0)
-        cam = torch.stack([cam[i]/torch.max(cam[i]) for i in range(b)], dim=0)
-        cam = cam.unsqueeze(dim=1)
+        cam = torch.reshape(cam, (b, args.num_classes, h, w))
+        for i in range(b):
+            for j in range(args.num_classes):
+                cam[i,j] = (cam[i,j]-torch.min(cam[i,j]))/(torch.max(cam[i,j])-torch.min(cam[i,j]))
+        
+        # cam = torch.stack([cam[i]/torch.max(cam[i]) for i in range(b)], dim=0)
+        # cam = cam.unsqueeze(dim=1)
         pred_hmap = F.interpolate(cam, size=(256,256))
         
         # print(outputs.shape, labels.shape)
@@ -89,7 +96,7 @@ def train(epoch, avg_loss):
         avg_loss[img_id] += loss_cls.item()
         #-----------------------------------------------
         loss_hmap = heatmap_loss(pred_hmap, heatmaps)    
-        if (idx+1)%10==0:
+        if (idx+1)%20==0:
             alp = alp*0.9
         loss = loss_cls + alp*loss_hmap
         # print(loss_cls, alp*loss_hmap)
@@ -99,8 +106,8 @@ def train(epoch, avg_loss):
         train_loss += loss.item()
         
         total += labels.size(0)
-        correct += predicted.eq(labels).sum().item()
-        pbar.set_postfix({'loss':train_loss/len(train_loader), 'acc':100*correct/total})
+        f1_score = F1(outputs, labels)
+        pbar.set_postfix({'loss':train_loss/len(train_loader), 'F1':100*f1_score/total})
 
 #test---------------------------------------------------------------------
 def test(epoch, best_acc):
@@ -108,6 +115,7 @@ def test(epoch, best_acc):
     test_loss = 0
     correct = 0
     total = 0
+    F1 = utils.F1_score()
     with torch.no_grad():
         pbar = tqdm(test_loader)
         for idx, (images, labels, _, img_id) in enumerate(pbar):
@@ -119,33 +127,38 @@ def test(epoch, best_acc):
             test_loss += loss.item()
             _, predicted = outputs.max(1)
             total += labels.size(0)
-            correct += predicted.eq(labels).sum().item()
-            pbar.set_postfix({'loss':test_loss/len(test_loader), 'acc':100*correct/total})
-        acc = 100*correct/total
-        if acc > best_acc:
-            torch.save({'model':model.state_dict()}, os.path.join(save_path,f'{epoch}_{acc:0.3f}_model.pt'))
-            best_acc = acc
+            f1_score = F1(outputs, labels)
+            pbar.set_postfix({'loss':test_loss/len(test_loader), 'F1':100*f1_score/total})
+        f1_score = 100*f1_score/total
+        if f1_score > best_acc:
+            torch.save({'model':model.state_dict()}, os.path.join(save_path,f'{epoch}_{f1_score:0.3f}_model.pt'))
+            best_acc = f1_score
         return best_acc 
 
 #data selection---------------------------------------------------------------------
 def select(episode, unselected, selected, avg_loss, K=150):
     loss_arg = np.argsort(avg_loss)[::-1]
+    # print(loss_arg)
+    # print(unselected)
+    # print(len(unselected))
     count = 0
     for idx in loss_arg:
         if idx in unselected:
             np.delete(unselected, np.where(unselected==idx))
-            np.append(selected, idx)
+            selected = np.append(selected, idx)
             count += 1
         if count == K:
             break
+    # print(len(unselected))
+    # print(selected)
     np.save(os.path.join(save_path, f'episode{episode}_selected.txt'),selected)
 
 #-----------------------------------------------------------------------------------
 if __name__ == "__main__":
     selected = np.array([])
-    unselected = np.array([i for i in range(15849)])
+    unselected = np.array([i for i in range(2320)])
     
-    model = ResNet18(num_classes=30)
+    model = ResNet18(args.num_classes)
     model = model.to(device)
         
     model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
@@ -156,26 +169,29 @@ if __name__ == "__main__":
     
     best_acc = 0
     
-    trainset = ilsvrc30(args.data_path, 'train', selected)
-    testset = ilsvrc30(args.data_path, 'val', [])
+    trainset = chestX(args.data_path, 'train', selected)
+    testset = chestX(args.data_path, 'test', [])
     
     train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=2)
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=2)
     
     avg_loss = np.array([0.0 for i in range(len(train_loader.dataset))])
+    #------------------------------------------------------------------------------
     epi_count = 0
     for i in range(0, args.epoch):
         train(i, avg_loss)
         best_acc = test(i, best_acc)
         model_scheduler.step()
-        if i == 0:
-            select(episode, unselected, selected, avg_loss, K=1500)
+        if i==0:
+            select(episode, unselected, selected, avg_loss, K=2320)
             
-            trainset = ilsvrc30(args.data_path, 'train', selected)
-            testset = ilsvrc30(args.data_path, 'val', [])
+            trainset = chestX(args.data_path, 'train', selected)
+            testset = chestX(args.data_path, 'test', [])
             
             train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=2)
             test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=2)
             
             avg_loss = np.array([0.0 for i in range(len(train_loader.dataset))])
+    #------------------------------------------------------------------------------
+    
         
