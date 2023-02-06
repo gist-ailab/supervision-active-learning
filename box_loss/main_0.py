@@ -13,7 +13,7 @@ from resnet import *
 import argparse
 import pickle
 import random
-from dataset import chestX, ilsvrc30, ilsvrc100
+from dataset import chestX, ilsvrc30, ilsvrc30_2, ilsvrc100
 import utils
 
 parser = argparse.ArgumentParser()
@@ -56,9 +56,12 @@ if not os.path.isdir(save_path):
     
 if __name__ == "__main__":
     selected = []
-    trainset = ilsvrc30(args.data_path, 'train', selected)
-    testset = ilsvrc30(args.data_path, 'val', [])
+    trainset = ilsvrc30_2(args.data_path, 'train', selected)
+    valset = ilsvrc30_2(args.data_path, 'val', [])
+    testset = ilsvrc30_2(args.data_path, 'test', [])
+    
     train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=4)
+    val_loader = DataLoader(valset, args.batch_size, drop_last=True, shuffle=False, num_workers=4)
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=4)
     
     model = ResNet18(num_classes=30)
@@ -69,7 +72,7 @@ if __name__ == "__main__":
     classif_loss = nn.CrossEntropyLoss()
     
     #train-------------------------------------------------------------------
-    def train(epoch):
+    def train(epoch, train_loader):
         model.train()
         train_loss = 0
         correct = 0
@@ -93,7 +96,7 @@ if __name__ == "__main__":
             pbar.set_postfix({'loss':train_loss/len(train_loader), 'acc':100*correct/total})
     
     #test---------------------------------------------------------------------
-    def test(epoch, best_acc):
+    def test(epoch, best_acc, test_loader, mode):
         model.eval()
         test_loss = 0
         correct = 0
@@ -112,12 +115,14 @@ if __name__ == "__main__":
                 pbar.set_postfix({'loss':test_loss/len(test_loader), 'acc':100*correct/total})
             acc = 100*correct/total
             if acc > best_acc:
-                torch.save({'model':model.state_dict()}, os.path.join(save_path,f'{epoch}_{acc:0.3f}_model.pt'))
+                torch.save({'model':model.state_dict()}, os.path.join(save_path,f'{mode}_{epoch}_{acc:0.3f}_model.pt'))
                 best_acc = acc
             return best_acc 
     #------------------------------------------------------------------------------
     best_acc = 0
     for i in range(0, args.epoch):
-        train(i)
-        best_acc = test(i, best_acc)
+        train(i, train_loader)
+        best_acc = test(i, best_acc, val_loader, 'tuning')
         model_scheduler.step()
+    best_acc = 0
+    test(-1, best_acc, test_loader, 'test')

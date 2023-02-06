@@ -13,24 +13,23 @@ from resnet import *
 import argparse
 import pickle
 import random
-from dataset import chestX, ilsvrc30, ilsvrc100
+from dataset import chestX, ilsvrc30, ilsvrc30_2, ilsvrc100
 import utils
 import copy
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
-parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_7500')
-parser.add_argument('--epoch', type=int, default=50)
-parser.add_argument('--epoch2', type=int, default=50)
-parser.add_argument('--episode', type=int, default=5)
+parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500')
+parser.add_argument('--epoch', type=int, default=100)
+parser.add_argument('--episode', type=int, default=11)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--gpu', type=str, default='6')
 parser.add_argument('--dataset', type=str, default='')
-parser.add_argument('--query_algorithm', type=str, default='loss4')
+parser.add_argument('--query_algorithm', type=str, default='loss5')
 parser.add_argument('--addendum', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--lr', type=float, default=0.01)
-parser.add_argument('--model_para', type=str, default='')
+parser.add_argument('--num_classes', type=int, default=30)
 
 args = parser.parse_args()
 
@@ -62,7 +61,7 @@ def train(epoch, train_loader):
     train_loss = 0
     correct = 0
     total = 0
-    alp = 20
+    alp = 10
     pbar = tqdm(train_loader)
     print(f'epoch : {epoch} _________________________________________________')
     for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
@@ -75,14 +74,15 @@ def train(epoch, train_loader):
         b,c,h,w = acts.shape
         weight = list(model.parameters())[-2].data
         beforDot = torch.reshape(acts, (b,c,h*w))
-        weights = torch.stack([weight[i].unsqueeze(0) for i in labels], dim=0)
+        weights = torch.stack([weight for i in labels], dim=0)
+        # print(weights.shape)
         # weights = torch.stack([weight[i].unsqueeze(0) for i in labels], dim=0)
 
         cam = torch.bmm(weights, beforDot)
-        cam = torch.reshape(cam, (b, h, w))
-        cam = torch.stack([cam[i]-torch.min(cam[i]) for i in range(b)], dim=0)
-        cam = torch.stack([cam[i]/torch.max(cam[i]) for i in range(b)], dim=0)
-        cam = cam.unsqueeze(dim=1)
+        cam = torch.reshape(cam, (b, args.num_classes, h, w))
+        min_val = cam.min(-1)[0].min(-1)[0]
+        max_val = cam.max(-1)[0].max(-1)[0]
+        cam = (cam - min_val[:,:,None,None])/(max_val[:,:,None,None] - min_val[:,:,None,None])
         pred_hmap = F.interpolate(cam, size=(256,256))
         
         # print(outputs.shape, labels.shape)
@@ -90,7 +90,7 @@ def train(epoch, train_loader):
         #-----------------------------------------------
         # avg_loss[img_id] += loss_cls.item()
         #-----------------------------------------------
-        loss_hmap = heatmap_loss(pred_hmap, heatmaps)    
+        loss_hmap = heatmap_loss(pred_hmap, heatmaps, labels)    
         if (idx+1)%10==0:
             alp = alp*0.9
         loss = loss_cls + alp*loss_hmap
@@ -132,7 +132,7 @@ def test(epoch, best_acc, test_loader, mode):
 #data selection---------------------------------------------------------------------
 def select(episode, unselected, selected, loader, K=150):
     avg_loss = np.array([0.0 for i in range(len(loader.dataset))])
-    new_selected = [np.array([])]
+    new_selected = np.array([])
     new_unselected = np.array([])
     model.eval()
     test_loss = 0
@@ -155,7 +155,7 @@ def select(episode, unselected, selected, loader, K=150):
         if count == K:
             break
     for idx in unselected:
-        if not idx in new_selected:
+        if not idx in selected:
             new_unselected = np.append(new_unselected, idx)
     # np.save(os.path.join(save_path, f'episode{episode}_selected.txt'),selected)
     return new_selected, new_unselected
@@ -166,75 +166,43 @@ if __name__ == "__main__":
     unselected = np.array([i for i in range(14349)])
     
     model = ResNet18(num_classes=30)
-    # model_para = torch.load(args.model_para)
-    # model.load_state_dict(model_para)
     model = model.to(device)
         
     model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
     model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)    
     
     classif_loss = nn.CrossEntropyLoss()
-    heatmap_loss = utils.heatmap_loss4()
+    heatmap_loss = utils.multi_heatmap_loss()
     
-    trainset = ilsvrc30(args.data_path, 'train', selected)
-    valset = ilsvrc30(args.data_path, 'val', [])
-    train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=2)
-    val_loader = DataLoader(valset, args.batch_size, drop_last=True, shuffle=False, num_workers=2)
+    trainset = ilsvrc30_2(args.data_path, 'train', selected)
+    valset = ilsvrc30_2(args.data_path, 'val', [])
+    testset = ilsvrc30_2(args.data_path, 'test', [])
+    
+    train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=4)
+    val_loader = DataLoader(valset, args.batch_size, drop_last=True, shuffle=False, num_workers=4)
+    test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=4)
     
     best_acc = 0
     for i in range(0, args.epoch):
         train(i, train_loader)
-        best_acc = test(i, best_acc, val_loader, 'base')
-        model_scheduler.step()
-        
-    #------------------------------------------------------------------------------
-    model = ResNet18(num_classes=30)
-    model = model.to(device)
-    
-    para_list = os.listdir(save_path)
-    best_para = para_list[-1]
-    print(best_para)
-    model_para = torch.load(os.path.join(save_path,best_para))
-    model.load_state_dict(model_para['model'])
-    
-    classif_loss = nn.CrossEntropyLoss()
-    heatmap_loss = utils.heatmap_loss4()
-    
-    selected = np.array([])
-    unselected = np.array([i for i in range(14349)])
-    trainset = ilsvrc30(args.data_path, 'train', selected)
-    train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=2)
-    
-    selected, unselected = select(episode, unselected, selected, train_loader, K=7500)
-    selected = selected.tolist()
-    selected = [int(i) for i in selected]
-    unselected = unselected.tolist()
-    print(selected)
-    
-    model_optimizer = optim.SGD(model.parameters(), lr=args.lr*0.1)
-    model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)    
-     
-    trainset = ilsvrc30(args.data_path, 'train', selected)
-    valset = ilsvrc30(args.data_path, 'val', [])
-    testset = ilsvrc30(args.data_path, 'test', [])
-    
-    print(len(selected))
-    tuning_sampler = SubsetRandomSampler(selected)
-    train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=False, num_workers=2, sampler=tuning_sampler)
-    val_loader = DataLoader(valset, args.batch_size, drop_last=True, shuffle=False, num_workers=2)
-    test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=2)
-    
-    best_acc = 0
-    for i in range(0, args.epoch2):
-        train(i, train_loader)
         best_acc = test(i, best_acc, val_loader, 'tuning')
         model_scheduler.step()
-    #------------------------------------------------------------------------------
-    best_acc = 0
-    para_list = os.listdir(save_path)
-    best_para = para_list[-1]
-    print(best_para)
-    model_para = torch.load(os.path.join(save_path,best_para))
-    model.load_state_dict(model_para['model'])
+        if i == 0:
+            selected, unselected = select(episode, unselected, selected, train_loader, K=1500)
+            selected = selected.tolist()
+            selected = [int(i) for i in selected]
+            unselected = unselected.tolist()
+            
+            # tuning_sampler = SubsetRandomSampler(selected)
+            
+            trainset = ilsvrc30_2(args.data_path, 'train', selected)
+            valset = ilsvrc30_2(args.data_path, 'val', [])
+            testset = ilsvrc30_2(args.data_path, 'test', [])
+            
+            train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=4)
+            val_loader = DataLoader(valset, args.batch_size, drop_last=True, shuffle=False, num_workers=4)
+            test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=4)
     
+    best_acc = 0
     test(-1, best_acc, test_loader, 'test')
+        

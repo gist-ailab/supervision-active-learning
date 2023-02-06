@@ -8,7 +8,7 @@ import numpy as np
 from resnet import *
 from PIL import Image
 
-torch.random.manual_seed(20230151)
+torch.random.manual_seed(20230160)
 
 data_path = '/home/yunjae_heo/SSD/yunjae.heo/ILSVRC'
 # selected = [i for i in range(0,15849)]
@@ -25,8 +25,8 @@ test_loader = DataLoader(testset, 1, drop_last=True, shuffle=True, num_workers=4
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-# model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/all/seed7/loss4/116_75.784_model.pt'
-model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_7500/seed5/loss4/34_73.582_model.pt'
+# model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/all/seed10/loss4/0_20.614_model.pt'
+model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500/seed20/loss4/test_-1_40.333_model.pt'
 # model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero/seed5/loss/32_74.183_model.pt'
 model = ResNet18(num_classes=30)
 model = model.to(device)

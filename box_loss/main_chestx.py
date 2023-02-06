@@ -28,7 +28,7 @@ parser.add_argument('--gpu', type=str, default='6')
 parser.add_argument('--dataset', type=str, default='')
 parser.add_argument('--query_algorithm', type=str, default='loss4')
 parser.add_argument('--addendum', type=int, default=1000)
-parser.add_argument('--batch_size', type=int, default=8)
+parser.add_argument('--batch_size', type=int, default=4)
 parser.add_argument('--lr', type=float, default=0.01)
 parser.add_argument('--num_classes', type=int, default=10)
 
@@ -57,7 +57,7 @@ if not os.path.isdir(save_path):
     os.mkdir(save_path)
 
 #train-------------------------------------------------------------------
-def train(epoch, avg_loss):
+def train(epoch, avg_loss, train_loader):
     model.train()
     train_loss = 0
     correct = 0
@@ -82,9 +82,9 @@ def train(epoch, avg_loss):
 
         cam = torch.bmm(weights, beforDot)
         cam = torch.reshape(cam, (b, args.num_classes, h, w))
-        for i in range(b):
-            for j in range(args.num_classes):
-                cam[i,j] = (cam[i,j]-torch.min(cam[i,j]))/(torch.max(cam[i,j])-torch.min(cam[i,j]))
+        min_val = cam.min(-1)[0].min(-1)[0]
+        max_val = cam.max(-1)[0].max(-1)[0]
+        cam = (cam - min_val[:,:,None,None])/(max_val[:,:,None,None] - min_val[:,:,None,None])
         
         # cam = torch.stack([cam[i]/torch.max(cam[i]) for i in range(b)], dim=0)
         # cam = cam.unsqueeze(dim=1)
@@ -110,7 +110,7 @@ def train(epoch, avg_loss):
         pbar.set_postfix({'loss':train_loss/len(train_loader), 'F1':100*f1_score/total})
 
 #test---------------------------------------------------------------------
-def test(epoch, best_acc):
+def test(epoch, best_acc, test_loader):
     model.eval()
     test_loss = 0
     correct = 0
@@ -158,7 +158,7 @@ if __name__ == "__main__":
     selected = np.array([])
     unselected = np.array([i for i in range(2320)])
     
-    model = ResNet18(args.num_classes)
+    model = ResNet50(args.num_classes)
     model = model.to(device)
         
     model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
@@ -172,15 +172,20 @@ if __name__ == "__main__":
     trainset = chestX(args.data_path, 'train', selected)
     testset = chestX(args.data_path, 'test', [])
     
+    # trainset, valset = torch.utils.data.random_split(dataset,[14349, 1500])
+    
     train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=2)
+    # val_loader = DataLoader(valset, args.batch_size, drop_last=True, shuffle=False, num_workers=2)
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=2)
     
     avg_loss = np.array([0.0 for i in range(len(train_loader.dataset))])
+    
+    
     #------------------------------------------------------------------------------
     epi_count = 0
     for i in range(0, args.epoch):
         train(i, avg_loss)
-        best_acc = test(i, best_acc)
+        best_acc = test(i, best_acc, val_loader)
         model_scheduler.step()
         if i==0:
             select(episode, unselected, selected, avg_loss, K=2320)

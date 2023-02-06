@@ -7,7 +7,7 @@ from torch.optim.lr_scheduler import MultiStepLR
 import torchvision.transforms as transforms
 import torchvision.models as models
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, SubsetRandomSampler
 from tqdm import tqdm
 from resnet import *
 import argparse
@@ -20,7 +20,8 @@ import copy
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunjae.heo/ILSVRC')
 parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500')
-parser.add_argument('--epoch', type=int, default=100)
+parser.add_argument('--epoch', type=int, default=50)
+parser.add_argument('--epoch2', type=int, default=50)
 parser.add_argument('--episode', type=int, default=5)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--gpu', type=str, default='6')
@@ -29,6 +30,7 @@ parser.add_argument('--query_algorithm', type=str, default='loss4')
 parser.add_argument('--addendum', type=int, default=1000)
 parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--lr', type=float, default=0.01)
+parser.add_argument('--model_para', type=str, default='')
 
 args = parser.parse_args()
 
@@ -55,12 +57,12 @@ if not os.path.isdir(save_path):
     os.mkdir(save_path)
 
 #train-------------------------------------------------------------------
-def train(epoch, avg_loss):
+def train(epoch, train_loader):
     model.train()
     train_loss = 0
     correct = 0
     total = 0
-    alp = 20
+    alp = 100
     pbar = tqdm(train_loader)
     print(f'epoch : {epoch} _________________________________________________')
     for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
@@ -86,11 +88,11 @@ def train(epoch, avg_loss):
         # print(outputs.shape, labels.shape)
         loss_cls = classif_loss(outputs, labels)
         #-----------------------------------------------
-        avg_loss[img_id] += loss_cls.item()
+        # avg_loss[img_id] += loss_cls.item()
         #-----------------------------------------------
         loss_hmap = heatmap_loss(pred_hmap, heatmaps)    
-        if (idx+1)%20==0:
-            alp = alp*0.8
+        if (idx+1)%10==0:
+            alp = alp*0.9
         loss = loss_cls + alp*loss_hmap
         # print(loss_cls, alp*loss_hmap)
         loss.backward()
@@ -103,7 +105,7 @@ def train(epoch, avg_loss):
         pbar.set_postfix({'loss':train_loss/len(train_loader), 'acc':100*correct/total})
 
 #test---------------------------------------------------------------------
-def test(epoch, best_acc):
+def test(epoch, best_acc, test_loader, mode):
     model.eval()
     test_loss = 0
     correct = 0
@@ -123,29 +125,49 @@ def test(epoch, best_acc):
             pbar.set_postfix({'loss':test_loss/len(test_loader), 'acc':100*correct/total})
         acc = 100*correct/total
         if acc > best_acc:
-            torch.save({'model':model.state_dict()}, os.path.join(save_path,f'{epoch}_{acc:0.3f}_model.pt'))
+            torch.save({'model':model.state_dict()}, os.path.join(save_path,f'{mode}_{epoch}_{acc:0.3f}_model.pt'))
             best_acc = acc
         return best_acc 
 
 #data selection---------------------------------------------------------------------
-def select(episode, unselected, selected, avg_loss, K=150):
+def select(episode, unselected, selected, loader, K=150):
+    avg_loss = np.array([0.0 for i in range(len(loader.dataset))])
+    new_selected = np.array([])
+    new_unselected = np.array([])
+    model.eval()
+    test_loss = 0
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        pbar = tqdm(loader)
+        for idx, (images, labels, _, img_id) in enumerate(pbar):
+            images, labels = images.to(device), labels.to(device)
+            outputs, _ = model(images)
+            loss = classif_loss(outputs, labels)
+            avg_loss[img_id] += loss.item()
+    
     loss_arg = np.argsort(avg_loss)[::-1]
     count = 0
     for idx in loss_arg:
         if idx in unselected:
-            np.delete(unselected, np.where(unselected==idx))
-            np.append(selected, idx)
+            new_selected = np.append(new_selected, idx)
             count += 1
         if count == K:
             break
-    np.save(os.path.join(save_path, f'episode{episode}_selected.txt'),selected)
+    for idx in unselected:
+        if not idx in selected:
+            new_unselected = np.append(new_unselected, idx)
+    # np.save(os.path.join(save_path, f'episode{episode}_selected.txt'),selected)
+    return new_selected, new_unselected
 
 #-----------------------------------------------------------------------------------
 if __name__ == "__main__":
     selected = np.array([])
-    unselected = np.array([i for i in range(15849)])
+    unselected = np.array([i for i in range(14349)])
     
     model = ResNet18(num_classes=30)
+    # model_para = torch.load(args.model_para)
+    # model.load_state_dict(model_para)
     model = model.to(device)
         
     model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
@@ -154,25 +176,64 @@ if __name__ == "__main__":
     classif_loss = nn.CrossEntropyLoss()
     heatmap_loss = utils.heatmap_loss4()
     
-    best_acc = 0
-    
     trainset = ilsvrc30(args.data_path, 'train', selected)
-    testset = ilsvrc30(args.data_path, 'val', [])
-    
+    valset = ilsvrc30(args.data_path, 'val', [])
     train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=2)
+    val_loader = DataLoader(valset, args.batch_size, drop_last=True, shuffle=False, num_workers=2)
+    
+    best_acc = 0
+    for i in range(0, args.epoch):
+        train(i, train_loader)
+        best_acc = test(i, best_acc, val_loader, 'base')
+        model_scheduler.step()
+        
+    #------------------------------------------------------------------------------
+    model = ResNet18(num_classes=30)
+    model = model.to(device)
+    
+    para_list = os.listdir(save_path)
+    best_para = para_list[-1]
+    print(best_para)
+    model_para = torch.load(os.path.join(save_path,best_para))
+    model.load_state_dict(model_para['model'])
+    
+    classif_loss = nn.CrossEntropyLoss()
+    heatmap_loss = utils.heatmap_loss4()
+    
+    selected = np.array([])
+    unselected = np.array([i for i in range(14349)])
+    trainset = ilsvrc30(args.data_path, 'train', selected)
+    train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=2)
+    
+    selected, unselected = select(episode, unselected, selected, train_loader, K=1500)
+    selected = selected.tolist()
+    selected = [int(i) for i in selected]
+    unselected = unselected.tolist()
+    
+    model_optimizer = optim.SGD(model.parameters(), lr=args.lr*0.1)
+    model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)    
+     
+    trainset = ilsvrc30(args.data_path, 'train', selected)
+    valset = ilsvrc30(args.data_path, 'val', [])
+    testset = ilsvrc30(args.data_path, 'test', [])
+    
+    print(len(selected))
+    tuning_sampler = SubsetRandomSampler(selected)
+    train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=False, num_workers=2, sampler=tuning_sampler)
+    val_loader = DataLoader(valset, args.batch_size, drop_last=True, shuffle=False, num_workers=2)
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=2)
     
-    avg_loss = np.array([0.0 for i in range(len(train_loader.dataset))])
-    #------------------------------------------------------------------------------
-    epi_count = 0
-    for i in range(0, args.epoch):
-        train(i, avg_loss)
-        best_acc = test(i, best_acc)
+    best_acc = 0
+    for i in range(0, args.epoch2):
+        train(i, train_loader)
+        best_acc = test(i, best_acc, val_loader, 'tuning')
         model_scheduler.step()
-        if i % 10 == 0 and epi_count < args.episode:
-            select(episode, unselected, selected, avg_loss, K=1500) 
-            epi_count += 1
-            avg_loss = np.array([0.0 for i in range(len(train_loader.dataset))])
     #------------------------------------------------------------------------------
+    best_acc = 0
+    para_list = os.listdir(save_path)
+    best_para = para_list[-1]
+    print(best_para)
+    model_para = torch.load(os.path.join(save_path,best_para))
+    model.load_state_dict(model_para['model'])
     
-        
+    test(-1, best_acc, test_loader, 'test')

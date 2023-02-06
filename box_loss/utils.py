@@ -279,18 +279,17 @@ class heatmap_loss5(nn.Module):
         total_loss = 0
         N = 0
         for b_idx in range(len(Y_gt)):
-            N += 1
-            Y_p = Y_pred[b_idx].clone()
-            
             if torch.max(Y_gt[b_idx])==0:
-                radi, gt = get_box_pos(Y_p, T=0.1)
-                Y_g = make_heatmap(radi, gt)
+                total_loss += torch.tensor([0])
             else:
+                N += 1
                 Y_g = Y_gt[b_idx]
-            
-            positive = torch.sum(Y_g*Y_p)
-            negative = torch.sum((1-Y_g)*Y_p)
-            total_loss += negative/(positive+self.e)
+                Y_p = Y_pred[b_idx]
+                Y_g_pos = torch.where(Y_g*Y_p > 0, 1, 0)
+                
+                positive = torch.sum(Y_g_pos*Y_p)
+                negative = torch.sum((1-Y_g)*Y_p)
+                total_loss += negative/(positive+self.e)
         if N == 0: N = 1
         if total_loss == 0:
             return 0.0
@@ -304,23 +303,30 @@ class multi_heatmap_loss(nn.Module):
         self.e = 1e-6
         self.tr = 0.1
     
-    def forward(self, Y_pred, Y_gt):
+    def forward(self, Y_pred, Y_gt, label):
+        #Y_gt : (b, clss, 256, 256)
+        #Y_pred : (b, clss, 256, 256)
+        #label : (b)
         total_loss = 0
         N = 0
         for b_idx in range(len(Y_gt)):
             if not torch.max(Y_gt[b_idx])==0:
                 N += 1
                 for clss in range(len(Y_gt[b_idx])):
-                    curr_loss = 0
+                    pos_loss = 0
+                    neg_loss = 0
                     if torch.max(Y_gt[b_idx,clss])==0:
                         curr_loss += torch.tensor([0])
                     else:
                         Y_g = Y_gt[b_idx,clss]
-                        Y_p = Y_pred[b_idx,clss].clone()
+                        Y_p = Y_pred[b_idx,clss]
                         positive = torch.sum(Y_g*Y_p)
                         negative = torch.sum((1-Y_g)*Y_p)
-                        curr_loss += negative/(positive+self.e)
-                    total_loss += curr_loss
+                        if label[b_idx] == clss:
+                            pos_loss += negative/(positive+self.e)
+                        else:
+                            neg_loss += negative/(positive+self.e)
+                    total_loss += pos_loss + neg_loss/len(Y_gt[b_idx])
         if N == 0: N = 1
         if total_loss == 0:
             return 0.0
