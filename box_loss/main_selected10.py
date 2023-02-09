@@ -62,7 +62,55 @@ def train(epoch, train_loader):
     train_loss = 0
     correct = 0
     total = 0
-    alp = 100
+    alp = 10
+    pbar = tqdm(train_loader)
+    print(f'epoch : {epoch} _________________________________________________')
+    for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
+        images, labels, heatmaps = images.to(device), labels.to(device), heatmaps.to(device)
+        # print(device)
+        model_optimizer.zero_grad()
+        outputs, _ = model(images)
+        _, predicted = outputs.max(1)
+        
+        # b,c,h,w = acts.shape
+        # weight = list(model.parameters())[-2].data
+        # beforDot = torch.reshape(acts, (b,c,h*w))
+        # weights = torch.stack([weight[i].unsqueeze(0) for i in labels], dim=0)
+        # weights = torch.stack([weight[i].unsqueeze(0) for i in labels], dim=0)
+
+        # cam = torch.bmm(weights, beforDot)
+        # cam = torch.reshape(cam, (b, h, w))
+        # cam = torch.stack([cam[i]-torch.min(cam[i]) for i in range(b)], dim=0)
+        # cam = torch.stack([cam[i]/torch.max(cam[i]) for i in range(b)], dim=0)
+        # cam = cam.unsqueeze(dim=1)
+        # pred_hmap = F.interpolate(cam, size=(256,256))
+        
+        # print(outputs.shape, labels.shape)
+        loss_cls = classif_loss(outputs, labels)
+        #-----------------------------------------------
+        # avg_loss[img_id] += loss_cls.item()
+        #-----------------------------------------------
+        # loss_hmap = heatmap_loss(pred_hmap, heatmaps)    
+        # if (idx+1)%10==0:
+        #     alp = alp*0.9
+        loss = loss_cls
+        # print(loss_cls, alp*loss_hmap)
+        loss.backward()
+        model_optimizer.step()
+        
+        train_loss += loss.item()
+        
+        total += labels.size(0)
+        correct += predicted.eq(labels).sum().item()
+        pbar.set_postfix({'loss':train_loss/len(train_loader), 'acc':100*correct/total})
+
+def train2(epoch, train_loader):
+    model.train()
+    heatmap_model.eval()
+    train_loss = 0
+    correct = 0
+    total = 0
+    alp = 10
     pbar = tqdm(train_loader)
     print(f'epoch : {epoch} _________________________________________________')
     for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
@@ -90,7 +138,11 @@ def train(epoch, train_loader):
         #-----------------------------------------------
         # avg_loss[img_id] += loss_cls.item()
         #-----------------------------------------------
-        loss_hmap = heatmap_loss(pred_hmap, heatmaps)    
+        with torch.no_grad():
+            pseudo_heatmaps = heatmap_model(acts)
+            pseudo_heatmaps = torch.stack([pseudo_heatmaps[i]-torch.min(pseudo_heatmaps[i]) for i in range(b)], dim=0)
+            pseudo_heatmaps = torch.stack([pseudo_heatmaps[i]/torch.max(pseudo_heatmaps[i]) for i in range(b)], dim=0)
+        loss_hmap = heatmap_loss(pred_hmap, heatmaps, pseudo_heatmaps)    
         if (idx+1)%10==0:
             alp = alp*0.9
         loss = loss_cls + alp*loss_hmap
@@ -103,7 +155,30 @@ def train(epoch, train_loader):
         total += labels.size(0)
         correct += predicted.eq(labels).sum().item()
         pbar.set_postfix({'loss':train_loss/len(train_loader), 'acc':100*correct/total})
-
+        
+def train_heatmap(epoch, train_loader):
+    model.eval()
+    heatmap_model.train()
+    train_loss = 0
+    pbar = tqdm(train_loader)
+    print(f'epoch : {epoch} _________________________________________________')
+    for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
+        images, labels, heatmaps = images.to(device), labels.to(device), heatmaps.to(device)
+        # print(device)
+        gen_optimizer.zero_grad()
+        _, acts = model(images)
+        pseudo_heatmaps = heatmap_model(acts)
+        
+        b, h, w = pseudo_heatmaps.shape
+        pseudo_heatmaps = torch.stack([pseudo_heatmaps[i]-torch.min(pseudo_heatmaps[i]) for i in range(b)], dim=0)
+        pseudo_heatmaps = torch.stack([pseudo_heatmaps[i]/torch.max(pseudo_heatmaps[i]) for i in range(b)], dim=0)
+        
+        loss_hmap = gen_loss(pseudo_heatmaps, heatmaps, None)    
+        loss_hmap.backward()
+        gen_optimizer.step()
+        
+        train_loss += loss_hmap.item()
+        pbar.set_postfix({'loss':train_loss/len(train_loader)})
 #test---------------------------------------------------------------------
 def test(epoch, best_acc, test_loader, mode):
     model.eval()
@@ -181,6 +256,7 @@ if __name__ == "__main__":
     train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=2)
     val_loader = DataLoader(valset, args.batch_size, drop_last=True, shuffle=False, num_workers=2)
     
+    print("train base model -----------------------------------------------------")
     best_acc = 0
     for i in range(0, args.epoch):
         train(i, train_loader)
@@ -203,29 +279,41 @@ if __name__ == "__main__":
     selected = np.array([])
     unselected = np.array([i for i in range(14349)])
     trainset = ilsvrc30(args.data_path, 'train', selected)
-    train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=2)
+    train_loader = DataLoader(trainset, int(args.batch_size/4), drop_last=True, shuffle=True, num_workers=2)
     
+    print("Select targets for supervision --------------------------------------")
     selected, unselected = select(episode, unselected, selected, train_loader, K=1500)
     selected = selected.tolist()
     selected = [int(i) for i in selected]
     unselected = unselected.tolist()
     
-    model_optimizer = optim.SGD(model.parameters(), lr=args.lr*0.1)
+    model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
     model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)    
      
     trainset = ilsvrc30(args.data_path, 'train', selected)
     valset = ilsvrc30(args.data_path, 'val', [])
     testset = ilsvrc30(args.data_path, 'test', [])
     
-    print(len(selected))
+    print("train heatmap generator ----------------------------------------------")
     tuning_sampler = SubsetRandomSampler(selected)
-    train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=False, num_workers=2, sampler=tuning_sampler)
+    train_loader = DataLoader(trainset, int(args.batch_size), drop_last=True, shuffle=False, num_workers=2, sampler=tuning_sampler)
+    
+    heatmap_model = heatmap_model()
+    haetamp_model = heatmap_model.to(device)
+    gen_loss = utils.heatmap_loss4()
+    gen_optimizer = optim.SGD(heatmap_model.parameters(), lr=args.lr)
+    
+    for i in range(30):
+      train_heatmap(i, train_loader)
+    
+    train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=2)
     val_loader = DataLoader(valset, args.batch_size, drop_last=True, shuffle=False, num_workers=2)
     test_loader = DataLoader(testset, args.batch_size, drop_last=False, shuffle=False, num_workers=2)
     
+    print("tuning models ---------------------------------------------------------")
     best_acc = 0
     for i in range(0, args.epoch2):
-        train(i, train_loader)
+        train2(i, train_loader)
         best_acc = test(i, best_acc, val_loader, 'tuning')
         model_scheduler.step()
     #------------------------------------------------------------------------------

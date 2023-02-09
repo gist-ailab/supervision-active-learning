@@ -156,41 +156,30 @@ class BoxProposal(nn.Module):
         super(BoxProposal, self).__init__()
         pass
     
-class Decoder(nn.Module):
-    def __init__(self, output_size=256):
-        super(Decoder, self).__init__()
-        self.in_planes = 512
-
-        self.layer1 = nn.Conv2d(512,256,kernel_size=1,stride=1)
-        self.layer2 = nn.Conv2d(256,128,kernel_size=1,stride=1)
-        self.layer3 = nn.Conv2d(128,64,kernel_size=1,stride=1)
-        self.layer4 = nn.Conv2d(64,16,kernel_size=1,stride=1)
-        self.layer5 = nn.Conv2d(16,1,kernel_size=1,stride=1)
+class heatmap_model(nn.Module):
+    def __init__(self, input_size=32, output_size=256):
+        super(heatmap_model, self).__init__()
+        self.input_size = input_size
+        self.output_size = output_size
+        self.channel_layer = nn.Conv2d(512,32,kernel_size=1,stride=1)
         
-        self.upspl1 = nn.Upsample(size=[16,16])
-        self.upspl2 = nn.Upsample(size=[64,64])
-        self.upspl3 = nn.Upsample(size=[128,128])
-        self.upspl4 = nn.Upsample(size=[output_size,output_size])
-
-    def _make_layer(self, block, planes, num_blocks, stride):
-        strides = [stride] + [1]*(num_blocks-1)
-        layers = []
-        for stride in strides:
-            layers.append(block(self.in_planes, planes, stride))
-            self.in_planes = planes / block.expansion
-        return nn.Sequential(*layers)
+        self.layer1 = nn.Linear(32*self.input_size*self.input_size, 64*64)
+        self.layer2 = nn.Linear(64*64, 32*32)
+        self.layer3 = nn.Linear(32*32, 16*16)
+        self.relu = nn.ReLU()
 
     def forward(self, x):
-        out = self.layer1(x)
-        out = self.upspl1(out)
+        out = self.channel_layer(x)
+        out = out.view(out.size(0), -1)
+        out = self.layer1(out)
+        out = self.relu(out)
         out = self.layer2(out)
-        out = self.upspl2(out)
+        out = self.relu(out)
         out = self.layer3(out)
-        out = self.upspl3(out)
-        out = self.layer4(out)
-        out = self.upspl4(out)
-        out = self.layer5(out)
-        return out
+        out = out.view(out.size(0), 1, 16, 16)
+        out = F.interpolate(out, size=(256,256))
+        # print(out.shape)
+        return out.squeeze()
 
 class Linear(nn.Module):
     def __init__(self, num_classes=10):
