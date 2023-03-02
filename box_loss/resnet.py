@@ -166,6 +166,8 @@ class heatmap_model(nn.Module):
         self.layer1 = nn.Linear(32*self.input_size*self.input_size, 64*64)
         self.layer2 = nn.Linear(64*64, 32*32)
         self.layer3 = nn.Linear(32*32, 16*16)
+        self.layer4 = nn.Linear(16*16, 32*32)
+        self.layer5 = nn.Linear(32*32, 64*64)
         self.relu = nn.ReLU()
 
     def forward(self, x):
@@ -176,7 +178,11 @@ class heatmap_model(nn.Module):
         out = self.layer2(out)
         out = self.relu(out)
         out = self.layer3(out)
-        out = out.view(out.size(0), 1, 16, 16)
+        out = self.relu(out)
+        out = self.layer4(out)
+        out = self.relu(out)
+        out = self.layer5(out)
+        out = out.view(out.size(0), 1, 64, 64)
         out = F.interpolate(out, size=(256,256))
         # print(out.shape)
         return out.squeeze()

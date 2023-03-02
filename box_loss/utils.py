@@ -218,6 +218,7 @@ class heatmap_loss4(nn.Module):
             N += 1
             if torch.max(Y_gt[b_idx])==0:
                 Y_g = Y_pseudo[b_idx]
+                Y_g = torch.where(Y_g > self.tr, 1, 0)
             else:
                 Y_g = Y_gt[b_idx]
             Y_p = Y_pred[b_idx]

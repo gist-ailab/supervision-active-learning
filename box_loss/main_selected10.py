@@ -173,12 +173,15 @@ def train_heatmap(epoch, train_loader):
         pseudo_heatmaps = torch.stack([pseudo_heatmaps[i]-torch.min(pseudo_heatmaps[i]) for i in range(b)], dim=0)
         pseudo_heatmaps = torch.stack([pseudo_heatmaps[i]/torch.max(pseudo_heatmaps[i]) for i in range(b)], dim=0)
         
-        loss_hmap = gen_loss(pseudo_heatmaps, heatmaps, None)    
+        loss_hmap = gen_loss(pseudo_heatmaps, heatmaps, None)
+        # loss_hmap = gen_loss(pseudo_heatmaps, heatmaps)  
         loss_hmap.backward()
         gen_optimizer.step()
         
         train_loss += loss_hmap.item()
         pbar.set_postfix({'loss':train_loss/len(train_loader)})
+    if (epoch+1)%10 == 0:
+        torch.save({'gen':heatmap_model.state_dict()}, os.path.join(save_path,f'epoch{epoch}_heatmap_model.pt'))
 #test---------------------------------------------------------------------
 def test(epoch, best_acc, test_loader, mode):
     model.eval()
@@ -205,7 +208,7 @@ def test(epoch, best_acc, test_loader, mode):
         return best_acc 
 
 #data selection---------------------------------------------------------------------
-def select(episode, unselected, selected, loader, K=150):
+def select(episode, unselected, selected, loader, K=150, mode='loss'):
     avg_loss = np.array([0.0 for i in range(len(loader.dataset))])
     new_selected = np.array([])
     new_unselected = np.array([])
@@ -220,10 +223,15 @@ def select(episode, unselected, selected, loader, K=150):
             outputs, _ = model(images)
             loss = classif_loss(outputs, labels)
             avg_loss[img_id] += loss.item()
-    
-    loss_arg = np.argsort(avg_loss)[::-1]
+    if mode=='loss':
+        loss_arg = np.argsort(avg_loss)[::-1]
+    elif mode=='random':
+        loss_arg = np.random.permutation(np.argsort(avg_loss))[::-1]
     count = 0
+    # print(loss_arg[:3])
+    # print(loss_arg.shape)
     for idx in loss_arg:
+        # print(idx)
         if idx in unselected:
             new_selected = np.append(new_selected, idx)
             count += 1
@@ -282,10 +290,12 @@ if __name__ == "__main__":
     train_loader = DataLoader(trainset, int(args.batch_size/4), drop_last=True, shuffle=True, num_workers=2)
     
     print("Select targets for supervision --------------------------------------")
+    # selected, unselected = select(episode, unselected, selected, train_loader, K=1500, mode='random')
     selected, unselected = select(episode, unselected, selected, train_loader, K=1500)
     selected = selected.tolist()
     selected = [int(i) for i in selected]
     unselected = unselected.tolist()
+    # print(selected)
     
     model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
     model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)    
@@ -303,7 +313,7 @@ if __name__ == "__main__":
     gen_loss = utils.heatmap_loss4()
     gen_optimizer = optim.SGD(heatmap_model.parameters(), lr=args.lr)
     
-    for i in range(30):
+    for i in range(500):
       train_heatmap(i, train_loader)
     
     train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=2)

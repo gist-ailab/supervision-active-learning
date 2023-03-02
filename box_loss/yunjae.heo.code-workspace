@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../../Parameters"
+		},
+		{
+			"path": "../../SRYY"
 		}
 	],
 	"settings": {}

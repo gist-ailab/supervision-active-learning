@@ -173,12 +173,15 @@ def train_heatmap(epoch, train_loader):
         pseudo_heatmaps = torch.stack([pseudo_heatmaps[i]-torch.min(pseudo_heatmaps[i]) for i in range(b)], dim=0)
         pseudo_heatmaps = torch.stack([pseudo_heatmaps[i]/torch.max(pseudo_heatmaps[i]) for i in range(b)], dim=0)
         
-        loss_hmap = gen_loss(pseudo_heatmaps, heatmaps, None)    
+        # loss_hmap = gen_loss(pseudo_heatmaps, heatmaps, None)
+        loss_hmap = gen_loss(pseudo_heatmaps, heatmaps)  
         loss_hmap.backward()
         gen_optimizer.step()
         
         train_loss += loss_hmap.item()
         pbar.set_postfix({'loss':train_loss/len(train_loader)})
+        if (epoch+1)%10 == 0:
+            torch.save({'gen':heatmap_model.state_dict()}, os.path.join(save_path,f'epoch{epoch}_heatmap_model.pt'))
 #test---------------------------------------------------------------------
 def test(epoch, best_acc, test_loader, mode):
     model.eval()
@@ -202,7 +205,7 @@ def test(epoch, best_acc, test_loader, mode):
         if acc > best_acc:
             torch.save({'model':model.state_dict()}, os.path.join(save_path,f'{mode}_{epoch}_{acc:0.3f}_model.pt'))
             best_acc = acc
-        return best_acc 
+        return best_acc
 
 #data selection---------------------------------------------------------------------
 def select(episode, unselected, selected, loader, K=150):
@@ -300,7 +303,8 @@ if __name__ == "__main__":
     
     heatmap_model = heatmap_model()
     haetamp_model = heatmap_model.to(device)
-    gen_loss = utils.heatmap_loss4()
+    # gen_loss = utils.heatmap_loss4()
+    gen_loss = nn.CrossEntropyLoss()
     gen_optimizer = optim.SGD(heatmap_model.parameters(), lr=args.lr)
     
     for i in range(100):

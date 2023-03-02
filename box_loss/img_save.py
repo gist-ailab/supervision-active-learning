@@ -8,14 +8,15 @@ import numpy as np
 from resnet import *
 from PIL import Image
 
-torch.random.manual_seed(20230165)
-
+# torch.random.manual_seed(20230165)
+os.environ["CUDA_VISIBLE_DEVICES"] = '7'
 data_path = '/home/yunjae_heo/SSD/yunjae.heo/ILSVRC'
 # selected = [i for i in range(0,15849)]
 # trainset = ilsvrc30(data_path, 'train', selected)
 # test_loader = DataLoader(trainset, 1, drop_last=True, shuffle=True, num_workers=4)
 
 selected = [i for i in range(0,1500)]
+# selected = []
 testset = ilsvrc30(data_path, 'val', selected)
 test_loader = DataLoader(testset, 1, drop_last=True, shuffle=True, num_workers=4)
 
@@ -25,11 +26,15 @@ test_loader = DataLoader(testset, 1, drop_last=True, shuffle=True, num_workers=4
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '5'
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500/seed36/loss4/base_49_76.087_model.pt'
+model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500/seed1/loss4/test_-1_73.333_model.pt'
 # model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500/seed36/loss4/tuning_40_75.951_model.pt'
 # model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/zero/seed5/loss/32_74.183_model.pt'
 model = ResNet18(num_classes=30)
 model = model.to(device)
+
+heatmap_model = heatmap_model()
+heatamp_model = heatmap_model.to(device)
+heatamp_model.load_state_dict(torch.load('/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500/seed1/loss4/epoch499_heatmap_model.pt')['gen'])
 
 model_para = torch.load(model_path)
 # model_para['model'].update(model_para['linear'])
@@ -47,8 +52,8 @@ for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
     
     outputs = torch.softmax(outputs, dim=-1)
     conf, predicted = outputs.max(1)
-    print(conf)
-    print(labels, predicted)
+    # print(conf)
+    # print(labels, predicted)
     # if predicted.eq(labels).sum().item():
         # print(labels, predicted)
         # print(predicted.eq(labels).sum().item())
@@ -70,7 +75,13 @@ for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
     cam = cam.unsqueeze(dim=0)
     # cam = cam.unsqueeze(dim=0)
     pred_hmap = F.interpolate(cam, size=(256,256))
-    # save_image(heatmap_output, './temp_output_heatmap.png')
+    
+    pseudo_heatmaps = heatmap_model(acts)
+    pseudo_heatmaps = pseudo_heatmaps.unsqueeze(0)
+    pseudo_heatmaps = torch.stack([pseudo_heatmaps[i]-torch.min(pseudo_heatmaps[i]) for i in range(b)], dim=0)
+    pseudo_heatmaps = torch.stack([pseudo_heatmaps[i]/torch.max(pseudo_heatmaps[i]) for i in range(b)], dim=0)
+    
+    save_image(pseudo_heatmaps, './temp_pseudo_heatmap.png')
     save_image(pred_hmap, './temp_output_heatmap.png')
     break
 
