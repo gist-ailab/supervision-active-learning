@@ -34,7 +34,7 @@ model = model.to(device)
 
 heatmap_model = heatmap_model()
 heatamp_model = heatmap_model.to(device)
-heatamp_model.load_state_dict(torch.load('/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500/seed1/loss4/epoch499_heatmap_model.pt')['gen'])
+heatamp_model.load_state_dict(torch.load('/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500/seed1/loss4/epoch399_heatmap_model.pt')['gen'])
 
 model_para = torch.load(model_path)
 # model_para['model'].update(model_para['linear'])

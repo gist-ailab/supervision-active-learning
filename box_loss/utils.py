@@ -355,3 +355,4 @@ class F1_score(nn.Module):
         
         f1 = 2 * (precision*recall) / (precision + recall + self.epsilon)
         return f1.item()
+    
