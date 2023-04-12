@@ -8,23 +8,23 @@ import numpy as np
 from resnet import *
 from PIL import Image
 
-# torch.random.manual_seed(20230165)
+torch.random.manual_seed(20230230)
 os.environ["CUDA_VISIBLE_DEVICES"] = '7'
 data_path = '/home/yunjae_heo/SSD/yunjae.heo/ILSVRC'
-# selected = [i for i in range(0,15849)]
-# trainset = ilsvrc30(data_path, 'train', selected)
-# test_loader = DataLoader(trainset, 1, drop_last=True, shuffle=True, num_workers=4)
+selected = [i for i in range(0,15849)]
+trainset = ilsvrc30(data_path, 'train', selected)
+test_loader = DataLoader(trainset, 1, drop_last=True, shuffle=True, num_workers=4)
 
-selected = [i for i in range(0,1500)]
-# selected = []
-testset = ilsvrc30(data_path, 'val', selected)
-test_loader = DataLoader(testset, 1, drop_last=True, shuffle=True, num_workers=4)
+# selected = [i for i in range(0,1500)]
+# # selected = []
+# testset = ilsvrc30(data_path, 'val', selected)
+# test_loader = DataLoader(testset, 1, drop_last=True, shuffle=True, num_workers=4)
 
 # selected = [i for i in range(0,3001)]
 # trainset = chestX(data_path, 'train', selected)
 # train_loader = DataLoader(trainset, 32, drop_last=True, shuffle=True, num_workers=4)
 
-os.environ["CUDA_VISIBLE_DEVICES"] = '5'
+# os.environ["CUDA_VISIBLE_DEVICES"] = '5'
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500/seed1/loss4/test_-1_73.333_model.pt'
 # model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500/seed36/loss4/tuning_40_75.951_model.pt'
@@ -44,6 +44,7 @@ classif_loss = nn.CrossEntropyLoss()
 pbar = tqdm(test_loader)
 model.eval()
 for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
+    print(img_id)
     images2 = torch.cat((images[:,2,:], images[:,1,:,:], images[:,0,:,:]), dim=0)
     labels = labels.to(device)
     # print(images.shape)

@@ -67,34 +67,13 @@ def train(epoch, train_loader):
     print(f'epoch : {epoch} _________________________________________________')
     for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
         images, labels, heatmaps = images.to(device), labels.to(device), heatmaps.to(device)
-        # print(device)
+        
         model_optimizer.zero_grad()
         outputs, _ = model(images)
         _, predicted = outputs.max(1)
         
-        # b,c,h,w = acts.shape
-        # weight = list(model.parameters())[-2].data
-        # beforDot = torch.reshape(acts, (b,c,h*w))
-        # weights = torch.stack([weight[i].unsqueeze(0) for i in labels], dim=0)
-        # weights = torch.stack([weight[i].unsqueeze(0) for i in labels], dim=0)
-
-        # cam = torch.bmm(weights, beforDot)
-        # cam = torch.reshape(cam, (b, h, w))
-        # cam = torch.stack([cam[i]-torch.min(cam[i]) for i in range(b)], dim=0)
-        # cam = torch.stack([cam[i]/torch.max(cam[i]) for i in range(b)], dim=0)
-        # cam = cam.unsqueeze(dim=1)
-        # pred_hmap = F.interpolate(cam, size=(256,256))
-        
-        # print(outputs.shape, labels.shape)
         loss_cls = classif_loss(outputs, labels)
-        #-----------------------------------------------
-        # avg_loss[img_id] += loss_cls.item()
-        #-----------------------------------------------
-        # loss_hmap = heatmap_loss(pred_hmap, heatmaps)    
-        # if (idx+1)%10==0:
-        #     alp = alp*0.9
         loss = loss_cls
-        # print(loss_cls, alp*loss_hmap)
         loss.backward()
         model_optimizer.step()
         

@@ -253,7 +253,7 @@ class ilsvrc30_2(Dataset):
         else:
             heatmaps = torch.zeros((30,256,256))
         
-        return (image, self.label_class[label], heatmaps, idx)
+        return (image2, self.label_class[label], heatmaps, idx)
     
     def imagenet_transform(self):
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
@@ -370,3 +370,36 @@ class ilsvrc100(Dataset):
              transforms.ToTensor(),
             ])
         return transform
+    
+class tooth_crop_classification():
+    def __init__(self, path, data_index, mode):
+        super(tooth_crop_classification, self).__init__()
+        f = open(data_index, 'r')
+        self.data_index = f.readlines()
+        self.custom_transform = custom_transform()
+        
+    def __getitem__(self, idx):
+        img = cv2.imread(self.data_index[idx])
+        img = self.custom_transform(img)
+        label = int('/'.split(self.data_index[idx])[-2])
+        return img, label
+        
+    def custom_transform(self):
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
+        transform = transforms.Compose(
+            [transforms.ToPILImage(),
+             transforms.Resize((256,256)),
+             transforms.ToTensor(),
+             normalize,
+            ])
+        return transform
+
+class tooth_panorama(Dataset):
+    def __init__(self):
+        pass
+    
+    def __len__(self):
+        pass
+    
+    def __getitem__(self, idx):
+        pass
