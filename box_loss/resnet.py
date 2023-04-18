@@ -161,7 +161,7 @@ class heatmap_model(nn.Module):
         super(heatmap_model, self).__init__()
         self.input_size = input_size
         self.output_size = output_size
-        self.channel_layer = nn.Conv2d(512,32,kernel_size=1,stride=1)
+        self.channel_layer = nn.Conv2d(256,32,kernel_size=1,stride=1)
         
         self.layer1 = nn.Linear(32*self.input_size*self.input_size, 64*64)
         self.layer2 = nn.Linear(64*64, 32*32)

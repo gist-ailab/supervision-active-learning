@@ -8,7 +8,8 @@ import numpy as np
 from resnet import *
 from PIL import Image
 
-torch.random.manual_seed(20230230)
+torch.random.manual_seed(20230241)
+
 os.environ["CUDA_VISIBLE_DEVICES"] = '7'
 data_path = '/home/yunjae_heo/SSD/yunjae.heo/ILSVRC'
 selected = [i for i in range(0,15849)]
@@ -32,9 +33,9 @@ model_path = '/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagen
 model = ResNet18(num_classes=30)
 model = model.to(device)
 
-heatmap_model = heatmap_model()
-heatamp_model = heatmap_model.to(device)
-heatamp_model.load_state_dict(torch.load('/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500/seed1/loss4/epoch399_heatmap_model.pt')['gen'])
+# heatmap_model = heatmap_model()
+# heatamp_model = heatmap_model.to(device)
+# heatamp_model.load_state_dict(torch.load('/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500/seed1/loss4/epoch399_heatmap_model.pt')['gen'])
 
 model_para = torch.load(model_path)
 # model_para['model'].update(model_para['linear'])
@@ -67,6 +68,9 @@ for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
     beforDot = torch.reshape(acts, (b,c,h*w))
     weights = torch.stack([weight[i].unsqueeze(0) for i in predicted], dim=0)
 
+    # cam1 = torch.bmm(weights[:,:,:256], beforDot)
+    # cam2 = torch.bmm(weights[:,:,256:], beforDot)
+    # cam = cam1 + cam2
     cam = torch.bmm(weights, beforDot)
     cam = torch.reshape(cam, (b, h, w))
     # print("1",cam.shape)
@@ -75,15 +79,34 @@ for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
     # print("2",cam.shape)
     cam = cam.unsqueeze(dim=0)
     # cam = cam.unsqueeze(dim=0)
-    pred_hmap = F.interpolate(cam, size=(256,256))
+    pred_hmap = F.interpolate(cam, size=(256,256), mode='bilinear')
+    pred_hmap = pred_hmap.detach().cpu()
     
-    pseudo_heatmaps = heatmap_model(acts)
-    pseudo_heatmaps = pseudo_heatmaps.unsqueeze(0)
-    pseudo_heatmaps = torch.stack([pseudo_heatmaps[i]-torch.min(pseudo_heatmaps[i]) for i in range(b)], dim=0)
-    pseudo_heatmaps = torch.stack([pseudo_heatmaps[i]/torch.max(pseudo_heatmaps[i]) for i in range(b)], dim=0)
+    # pred_hmap = torch.where(pred_hmap > torch.mean(pred_hmap), pred_hmap, 0)
+    print((pred_hmap==torch.max(pred_hmap)).nonzero())
     
-    save_image(pseudo_heatmaps, './temp_pseudo_heatmap.png')
-    save_image(pred_hmap, './temp_output_heatmap.png')
+    # pseudo_heatmaps = heatmap_model(acts)
+    # pseudo_heatmaps = pseudo_heatmaps.unsqueeze(0)
+    # pseudo_heatmaps = torch.stack([pseudo_heatmaps[i]-torch.min(pseudo_heatmaps[i]) for i in range(b)], dim=0)
+    # pseudo_heatmaps = torch.stack([pseudo_heatmaps[i]/torch.max(pseudo_heatmaps[i]) for i in range(b)], dim=0)
+    # pseudo_heatmaps = pseudo_heatmaps.detach().cpu()
+    
+    new_attention = (pred_hmap+heatmaps)*(heatmaps)**0.5
+    # new_attention = torch.where(new_attention > torch.mean(new_attention), pred_hmap, 0)
+    # # new_attention = torch.where(new_attention > 0.1, 1.0, 0.0)
+    new_attention = torch.exp(new_attention)
+    
+    new_attention = new_attention - torch.min(new_attention)
+    new_attention = new_attention/torch.max(new_attention)
+    # new_attention = pred_hmap
+    new_img = 0.9*new_attention*images2 + 0.1*images2
+    new_counter = 0.9*(1-new_attention)*images2 + 0.1*images2
+    
+    # save_image(pseudo_heatmaps, './temp_pseudo_heatmap.png')
+    save_image(pred_hmap, './temp_output_heatmap.png')    
+    save_image(new_attention, './feature_attention.png')
+    save_image(new_img, './aug_img.png')
+    save_image(new_counter, './aug_counter.png')
     break
 
 
