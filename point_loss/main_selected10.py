@@ -91,7 +91,6 @@ def train(epoch, train_loader, AVG_Loss):
 
 def train2(epoch, train_loader):
     model.train()
-    heatmap_model.eval()
     train_loss = 0
     correct = 0
     total = 0
@@ -167,7 +166,7 @@ def test(epoch, best_acc, test_loader, mode):
 #data selection---------------------------------------------------------------------
 def select(AVG_Loss, K=150, mode='loss'):
     new_selected = torch.topk(AVG_Loss, K, dim=-1)
-    return new_selected.numpy()
+    return new_selected[1].numpy()
 
 #-----------------------------------------------------------------------------------
 if __name__ == "__main__":
@@ -222,7 +221,6 @@ if __name__ == "__main__":
     # selected, unselected = select(episode, unselected, selected, train_loader, K=1500, mode='random')
     selected = select(AVG_Loss, K=1500)
     print('selected : ',len(selected))
-    selected = selected.tolist()
     # print(selected)
     
     model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
@@ -245,7 +243,9 @@ if __name__ == "__main__":
     #------------------------------------------------------------------------------
     best_acc = 0
     para_list = os.listdir(save_path)
-    best_para = para_list[-1]
+    base_list = [path for path in para_list if 'tuning' in path]
+    base_list.sort(key=lambda x : int(x.split('_')[1]))
+    best_para = base_list[-1]
     print(best_para)
     model_para = torch.load(os.path.join(save_path,best_para))
     model.load_state_dict(model_para['model'])

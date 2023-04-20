@@ -8,7 +8,7 @@ import numpy as np
 from resnet import *
 from PIL import Image
 
-torch.random.manual_seed(20230250)
+torch.random.manual_seed(20230239)
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '7'
 data_path = '/home/yunjae_heo/SSD/yunjae.heo/ILSVRC'
@@ -102,7 +102,8 @@ for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
     
     new_attention = new_attention - torch.min(new_attention)
     new_attention = new_attention/torch.max(new_attention)
-    # new_attention = pred_hmap
+    new_attention = pred_hmap
+
     new_img = new_attention*images2
     new_counter = (1-new_attention)*images2
     

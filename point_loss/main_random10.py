@@ -218,8 +218,8 @@ if __name__ == "__main__":
     
     print("Select targets for supervision --------------------------------------")
     # selected, unselected = select(episode, unselected, selected, train_loader, K=1500, mode='random')
-    selected [i for i in range(len(trainset))]
-    selected = random.shuffle(selected)
+    selected = [i for i in range(len(trainset))]
+    random.shuffle(selected)
     selected = selected[:1500]
     print('selected : ',len(selected))
     selected = selected.tolist()
@@ -245,7 +245,9 @@ if __name__ == "__main__":
     #------------------------------------------------------------------------------
     best_acc = 0
     para_list = os.listdir(save_path)
-    best_para = para_list[-1]
+    base_list = [path for path in para_list if 'tuning' in path]
+    base_list.sort(key=lambda x : int(x.split('_')[1]))
+    best_para = base_list[-1]
     print(best_para)
     model_para = torch.load(os.path.join(save_path,best_para))
     model.load_state_dict(model_para['model'])
