@@ -31,9 +31,6 @@ supervision-active-learning
        └── resnet.py
        └── utils.py
 └── LOC_synset_mapping 
-└── new_LOC_train_solution_30 
-└── new_LOC_test_solution_30 
-└── new_LOC_val_solution_30 
 └── etc(for data visualization)
 ```
 
