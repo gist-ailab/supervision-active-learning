@@ -1,6 +1,3 @@
-## Updates & TODO Lists
-- @@
-
 ## Getting Started
 
 ### Environment Setup
