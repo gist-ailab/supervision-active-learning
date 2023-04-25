@@ -51,6 +51,7 @@ for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
     # print(images.shape)
     images = images.to(device)
     outputs, acts = model(images)
+    print(acts.shape)
     
     outputs = torch.softmax(outputs, dim=-1)
     conf, predicted = outputs.max(1)
@@ -83,7 +84,7 @@ for idx, (images, labels, heatmaps, img_id) in enumerate(pbar):
     # print("2",cam.shape)
     cam = cam.unsqueeze(dim=0)
     # cam = cam.unsqueeze(dim=0)
-    pred_hmap = F.interpolate(cam, size=(256,256), mode='bilinear')
+    pred_hmap = F.interpolate(cam, size=(224,224), mode='bilinear')
     pred_hmap = pred_hmap.detach().cpu()
     
     # pred_hmap = torch.where(pred_hmap > torch.mean(pred_hmap), pred_hmap, 0)

@@ -92,7 +92,7 @@ def train(epoch, train_loader, AVG_Loss):
 
 def train2(epoch, train_loader):
     model.train()
-    heatmap_model.eval()
+    heatmap_model.train()
     train_loss = 0
     correct = 0
     total = 0
