@@ -1,5 +1,12 @@
 ## Getting Started
 
+### Overview
+
+Image Classification with additional Supervision for selected data
+선별된 데이터에 대한 추가 지도를 통한 이미지 분류
+
+*현재 추가 지도의 대상으로 Bbox 정보를 사용하여, ImageNet의 Annotation과 같은 형식을 가진 데이터들에 대해서 적용 가능*
+
 ### Environment Setup
 
 Install dependencies
