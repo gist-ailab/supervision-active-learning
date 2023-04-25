@@ -6,7 +6,7 @@ Image Classification with additional Supervision for selected data
 
 선별된 데이터에 대한 추가 지도를 통한 이미지 분류
 
-현재 추가 지도의 대상으로 Bbox 정보를 사용하여, ImageNet의 Annotation과 같은 형식을 가진 데이터들에 대해서 적용 가능
+현재 추가 지도의 대상으로 Bbox 정보를 사용하여, ImageNet의 Annotation과 같은 형식의 데이터셋에 대해 적용 가능
 
 box_loss : 추가 지도를 위해 Bbox의 위치 크기 정보를 활용
 
