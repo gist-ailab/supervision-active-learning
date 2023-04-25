@@ -211,7 +211,7 @@ class heatmap_loss4(nn.Module):
         self.e = 1e-6
         self.tr = 0.1
     
-    def forward(self, Y_pred, Y_gt):
+    def forward(self, Y_pred, Y_gt, Y_pseudo=None):
         total_loss = 0
         N = 0
         for b_idx in range(len(Y_gt)):

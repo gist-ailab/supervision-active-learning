@@ -7,6 +7,7 @@ from torch.optim.lr_scheduler import MultiStepLR
 import torchvision.transforms as transforms
 import torchvision.models as models
 import torch.optim as optim
+from torch.utils.data import Subset
 from torch.utils.data import DataLoader, SubsetRandomSampler
 from tqdm import tqdm
 from resnet import *
@@ -22,12 +23,9 @@ parser.add_argument('--data_path', type=str, default='/home/yunjae_heo/SSD/yunja
 parser.add_argument('--save_path', type=str, default='/home/yunjae_heo/workspace/ailab_mat/Parameters/supervision/imagenet30/box_loss/loss_1500')
 parser.add_argument('--epoch', type=int, default=50)
 parser.add_argument('--epoch2', type=int, default=50)
-parser.add_argument('--episode', type=int, default=5)
 parser.add_argument('--seed', type=int, default=None)
 parser.add_argument('--gpu', type=str, default='6')
-parser.add_argument('--dataset', type=str, default='')
-parser.add_argument('--query_algorithm', type=str, default='loss4')
-parser.add_argument('--addendum', type=int, default=1000)
+parser.add_argument('--loss', type=str, default='loss4')
 parser.add_argument('--batch_size', type=int, default=32)
 parser.add_argument('--lr', type=float, default=0.01)
 parser.add_argument('--model_para', type=str, default='')
@@ -39,7 +37,6 @@ if not args.seed==None:
     torch.random.manual_seed(args.seed)
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-episode = args.episode
 if not os.path.isdir(args.data_path):
     os.mkdir(args.data_path)
 if not os.path.isdir(args.save_path):
@@ -52,7 +49,7 @@ else:
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
     
-save_path = os.path.join(save_path, args.query_algorithm)
+save_path = os.path.join(save_path, args.loss)
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
 
@@ -132,7 +129,7 @@ def train2(epoch, train_loader):
         if (idx+1)%10==0:
             alp = alp*0.9
         loss = loss_cls + alp*loss_hmap
-        print(loss_cls, alp*loss_hmap)
+        # print(loss_cls, alp*loss_hmap)
         loss.backward()
         model_optimizer.step()
         
@@ -224,34 +221,34 @@ def select(AVG_Loss, K=150, mode='loss'):
 
 #-----------------------------------------------------------------------------------
 if __name__ == "__main__":
-    selected = np.array([])
-    unselected = np.array([i for i in range(14349)])
+    # selected = np.array([])
+    # unselected = np.array([i for i in range(14349)])
     
-    model = ResNet18(num_classes=30)
-    # model_para = torch.load(args.model_para)
-    # model.load_state_dict(model_para)
-    model = model.to(device)
+    # model = ResNet18(num_classes=30)
+    # # model_para = torch.load(args.model_para)
+    # # model.load_state_dict(model_para)
+    # model = model.to(device)
         
-    model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
-    model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)    
+    # model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
+    # model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)    
     
-    classif_loss = nn.CrossEntropyLoss()
-    heatmap_loss = utils.heatmap_loss4()
+    # classif_loss = nn.CrossEntropyLoss()
+    # heatmap_loss = utils.heatmap_loss4()
     
-    trainset = ilsvrc30(args.data_path, 'train', selected)
-    valset = ilsvrc30(args.data_path, 'val', [])
-    train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=2)
-    val_loader = DataLoader(valset, args.batch_size, drop_last=True, shuffle=False, num_workers=2)
+    # trainset = ilsvrc30(args.data_path, 'train', selected)
+    # valset = ilsvrc30(args.data_path, 'val', [])
+    # train_loader = DataLoader(trainset, args.batch_size, drop_last=True, shuffle=True, num_workers=2)
+    # val_loader = DataLoader(valset, args.batch_size, drop_last=True, shuffle=False, num_workers=2)
     
-    print("train base model -----------------------------------------------------")
-    best_acc = 0
-    AVG_Loss = torch.zeros(len(trainset))
-    for i in range(0, args.epoch):
-        train(i, train_loader, AVG_Loss)
-        best_acc = test(i, best_acc, val_loader, 'base')
-        model_scheduler.step()
+    # print("train base model -----------------------------------------------------")
+    # best_acc = 0
+    # AVG_Loss = torch.zeros(len(trainset))
+    # for i in range(0, args.epoch):
+    #     train(i, train_loader, AVG_Loss)
+    #     best_acc = test(i, best_acc, val_loader, 'base')
+    #     model_scheduler.step()
     
-    torch.save(AVG_Loss, os.path.join(save_path, f'seed{args.seed}_AVG_Loss.pt'))
+    # torch.save(AVG_Loss, os.path.join(save_path, f'seed{args.seed}_AVG_Loss.pt'))
         
     #------------------------------------------------------------------------------
     model = ResNet18(num_classes=30)
@@ -271,16 +268,15 @@ if __name__ == "__main__":
     classif_loss = nn.CrossEntropyLoss()
     heatmap_loss = utils.heatmap_loss4()
     
-    selected = torch.load(os.path.join(save_path, f'seed{args.seed}_AVG_Loss.pt'))
-    print('selected 10 : ',selected[:10])
+    AVG_Loss = torch.load(os.path.join(save_path, f'seed{args.seed}_AVG_Loss.pt'))
+    print('selected 10 : ',AVG_Loss[:10])
     
     print("Select targets for supervision --------------------------------------")
-    # selected, unselected = select(episode, unselected, selected, train_loader, K=1500, mode='random')
     selected = select(AVG_Loss, K=1500)
     selected = selected.tolist()
     # print(selected)
     
-    model_optimizer = optim.SGD(model.parameters(), lr=args.lr)
+    model_optimizer = optim.SGD(model.parameters(), lr=args.lr*0.1)
     model_scheduler = MultiStepLR(model_optimizer, milestones=[30,80], gamma=0.1)    
     
     trainset = ilsvrc30(args.data_path, 'train', selected)
