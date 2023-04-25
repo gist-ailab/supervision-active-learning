@@ -2,53 +2,37 @@
 
 ### Environment Setup
 
-1. Install dependencies
+Install dependencies
 ```
 sudo apt update && sudo apt upgrade
+conda create -n env_name
+conda activate env_name
+conda install -c anaconda git
+git clone https://github.com/gist-ailab/supervision-active-learning.git
+conda env update --file requirements.yaml --prune
 ```
 
-2. Set up a python environment
-```
-1. modify 'name' and 'prefix' in environment.yml 
-2. Run 'conda create --file environment.yml'
-```
 ## Train & Evaluation
 
 ### Dataset Preparation
-1. Download `sample dataset' from MAT.
+1. Download `ILSVRC' from MAT or Connect to MAT.
 ```
-wget sample_dataset.com
+PATH : ailab_mat/dataset/ILSVRC
 ```
-2. Extract it to `sample folder`
+2. Organize the folders as follows
 ```
-tar -xvf sample_dataset.tar
+ILSVRC
+├── ILSVRC (Original folder)
+       └── Annotations
+       └── Data
+       └── ImageSets
+└── LOC_synset_mapping 
+└── new_LOC_train_solution_30 
+└── new_LOC_test_solution_30 
+└── new_LOC_val_solution_30 
+└── ... (useless)
 ```
-3. Organize the folders as follows
+### Train and Test on sample dataset
 ```
-test
-├── output
-└── datasets
-       └── sample_dataset
-              └──annotations
-              └──train
-              └──val       
+python supervision_active_learning/box_loss/main_selected10.py --seed 99 --gpu 4 --data_path DATA_PATH --save_path SAVE_PATH --epoch 50 --epoch2 50 --loss loss4 --batch_size 32 --lr 0.01
 ```
-### Train on sample dataset
-```
-python train_net.py --epoch 100
-```
-
-### Evaluation on test dataset
-```
-python test_net.py --vis_results
-```
-
-## License
-
-The source code of this repository is released only for academic use. See the [license](./LICENSE.md) file for details.
-
-## License
-Distributed under the MIT License.
-
-## Acknowledgments
-This work was supported by Institute for Information & Communications Technology Promotion(IITP) grant funded by Korea goverment(MSIT) (No.2019-0-01335, Development of AI technology to generate and validate the task plan for assembling furniture in the real and virtual environment by understanding the unstructured multi-modal information from the assembly manual.
