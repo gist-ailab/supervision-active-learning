@@ -211,7 +211,7 @@ class heatmap_loss4(nn.Module):
         self.e = 1e-6
         self.tr = 0.1
     
-    def forward(self, Y_pred, Y_gt, Y_pseudo):
+    def forward(self, Y_pred, Y_gt):
         total_loss = 0
         N = 0
         for b_idx in range(len(Y_gt)):
@@ -225,12 +225,12 @@ class heatmap_loss4(nn.Module):
             positive = torch.sum(Y_g*Y_p)
             negative = torch.sum((1-Y_g)*Y_p)
             # print(positive)
-            total_loss += negative/(positive+self.e)
+            total_loss += 1 - torch.sum(Y_g*Y_p)/torch.sum(Y_g)
         if N == 0: N = 1
         if total_loss == 0:
             return 0.0
         else:
-            return torch.log(total_loss)/N
+            return total_loss/N
 
 def get_box_pos(heatmap, T):
     Y_g = torch.where(heatmap > T, heatmap, 0)
@@ -334,7 +334,7 @@ class multi_heatmap_loss(nn.Module):
             return 0.0
         else:
             return torch.log(total_loss)/N
-        
+
 class F1_score(nn.Module):
     def __init__(self):
         super().__init__()

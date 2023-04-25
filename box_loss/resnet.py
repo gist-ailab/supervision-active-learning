@@ -105,98 +105,36 @@ class ResNet(nn.Module):
             out6 = out5.view(out5.size(0), -1)
             out7 = self.linear(out6)
             return out7, out4
-
-class GradCamModel(nn.Module):
-    def __init__(self, model):
-        super().__init__()
-        self.gradients = None
-        self.tensorhook = []
-        self.layerhook = []
-        self.selected_out = None
-        
-        #PRETRAINED MODEL
-        self.model = model
-        # self.layerhook.append(self.model.layer4.register_forward_hook(self.forward_hook()))
-        # self.attach_hook()
-        
-        for p in self.model.parameters():
-            p.requires_grad = True
-    def attach_hook(self):
-        self.layerhook.append(self.model.layer4.register_forward_hook(self.forward_hook()))
-        
-    def detach_hook(self):
-        for layerhook in self.layerhook:
-            layerhook.remove()
-        for tensorhook in self.tensorhook:
-            tensorhook.remove()
-    
-    def activations_hook(self,grad):
-        self.gradients = grad
-
-    def get_act_grads(self):
-        return self.gradients
-
-    def forward_hook(self):
-        def hook(module, inp, out):
-            self.selected_out = out
-            self.tensorhook.append(out.register_hook(self.activations_hook))
-        return hook
-
-    def forward(self,x):
-        if self.model.training:
-            if len(self.layerhook)==0:
-                self.attach_hook()
-        else:
-            self.detach_hook()
-        out = self.model(x)
-        return out, self.selected_out
-
-class BoxProposal(nn.Module):
-    def __init__(self, output_size=256):
-        super(BoxProposal, self).__init__()
-        pass
     
 class heatmap_model(nn.Module):
-    def __init__(self, input_size=32, output_size=256):
+    def __init__(self, input_size=7, output_size=224):
         super(heatmap_model, self).__init__()
         self.input_size = input_size
         self.output_size = output_size
-        self.channel_layer = nn.Conv2d(256,32,kernel_size=1,stride=1)
         
-        self.layer1 = nn.Linear(32*self.input_size*self.input_size, 64*64)
-        self.layer2 = nn.Linear(64*64, 32*32)
-        self.layer3 = nn.Linear(32*32, 16*16)
-        self.layer4 = nn.Linear(16*16, 32*32)
-        self.layer5 = nn.Linear(32*32, 64*64)
-        self.relu = nn.ReLU()
+        self.layer1 = nn.Conv2d(512, 256, kernel_size=1)
+        self.upsample1 = nn.Upsample(self.input_size*2, mode='nearest')
+        self.layer2 = nn.Conv2d(256, 64, kernel_size=1)
+        self.upsample2 = nn.Upsample(self.input_size*4, mode='nearest')
+        self.layer3 = nn.Conv2d(64, 16, kernel_size=1)
+        self.upsample3 = nn.Upsample(self.input_size*8, mode='nearest')
+        self.layer4 = nn.Conv2d(16, 4, kernel_size=1)
+        self.upsample4 = nn.Upsample(self.input_size*16, mode='nearest')
+        self.layer5 = nn.Conv2d(4, 1, kernel_size=1)
+        self.upsample5 = nn.Upsample(self.input_size*32, mode='nearest')
 
     def forward(self, x):
-        out = self.channel_layer(x)
-        out = out.view(out.size(0), -1)
-        out = self.layer1(out)
-        out = self.relu(out)
+        out = self.layer1(x)
+        out = self.upsample1(out)
         out = self.layer2(out)
-        out = self.relu(out)
+        out = self.upsample2(out)
         out = self.layer3(out)
-        out = self.relu(out)
+        out = self.upsample3(out)
         out = self.layer4(out)
-        out = self.relu(out)
+        out = self.upsample4(out)
         out = self.layer5(out)
-        out = out.view(out.size(0), 1, 64, 64)
-        out = F.interpolate(out, size=(256,256))
+        out = self.upsample5(out)
         # print(out.shape)
-        return out.squeeze()
-
-class Linear(nn.Module):
-    def __init__(self, num_classes=10):
-        super(Linear, self).__init__()
-        self.linear = nn.Linear(512, num_classes)
-    
-    def forward(self, x):
-        size = x.shape[-1]
-        out = F.avg_pool2d(x, size)
-        out = out.view(out.size(0), -1)
-        out = self.linear(out)
         return out
 
 def ResNet18(num_classes):
