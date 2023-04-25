@@ -31,7 +31,7 @@ supervision-active-learning
        └── resnet.py
        └── utils.py
 └── LOC_synset_mapping 
-└── etc(for data visualization)
+└── etc(example of data visualization)
 ```
 
 ### Environment Setup
