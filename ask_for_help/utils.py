@@ -14,6 +14,9 @@ from scipy import ndimage
 from torchvision.ops import masks_to_boxes
 import random
 
+def collate_fn(batch):
+    return tuple(zip(*batch))
+
 def train(epoch, model, loader, criterion, optimizer, device):
     print('\nEpoch: %d'%epoch)
     model.train()
@@ -156,6 +159,27 @@ def supervision_train2(epoch, model, loader, s_loader, criterion, criterion2, op
     total_acc = 100 * running_acc / total
     print(f'Train epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
     
+def train_detector(epoch, model, loader, optimizer, device):
+    print('\nEpoch: %d'%epoch)
+    model.train()
+    train_loss_list = []
+    running_acc = 0.0
+    total = 0
+    for _, (images, targets) in enumerate(tqdm(loader)):
+        images = list(img.to(device) for img in images)
+        targets = [{k:v.to(device) for k,v in t.items()} for t in targets]
+        # print(targets[0])
+        loss_dict = model(images, targets)
+        losses = sum(loss for loss in loss_dict.values())
+        loss_value = losses.item()
+        total += len(images)
+        train_loss_list.append(loss_value)
+        losses.backward()
+        optimizer.step()
+    # print(train_loss_list)
+    # print(total)
+    return sum(train_loss_list)/total
+    
 def test(epoch, model, loader, criterion, device, bestAcc, spath):
     print('\nEpoch: %d'%epoch)
     model.eval()
@@ -182,6 +206,28 @@ def test(epoch, model, loader, criterion, device, bestAcc, spath):
             return total_acc
         else:
             return bestAcc
+        
+def val_detector(epoch, model, loader, device, bestAcc, spath):
+    print('\nEpoch: %d'%epoch)
+    # model.eval()
+    val_loss_list = []
+    running_acc = 0.0
+    total = 0
+    with torch.no_grad():
+        for _, (images, targets) in enumerate(tqdm(loader)):
+            images = list(img.to(device) for img in images)
+            targets = [{k:v.to(device) for k,v in t.items()} for t in targets]
+            loss_dict = model(images, targets)
+            # model.eval()
+            # pred = model(images)
+            # print(pred[0])
+            # model.train()
+            # print(loss_dict)
+            losses = sum(loss for loss in loss_dict.values())
+            loss_value = losses.item()
+            total += len(images)
+            val_loss_list.append(loss_value)
+        return sum(val_loss_list)/total
 
 def CAM(feats, weights, c_idx, height=224, width=224):
     h, w = 14,14

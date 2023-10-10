@@ -130,9 +130,3 @@ if args.mode=='point':
         supervision_train2(i, model, train2loader, s_loader, criterion, criterion2, optimizer, device, base_heatmap)
         bestAcc = test(i, model, valloader, criterion, device, bestAcc, save_path)
     print(bestAcc)
-
-if args.mode=='box':
-    pass
-
-if args.mode=='mask':
-    pass

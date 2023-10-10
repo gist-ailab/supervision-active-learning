@@ -2,6 +2,8 @@ import os,sys
 import torch
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
+import torchvision.transforms.v2 as transforms2
+import transforms as T
 import torchvision.transforms.functional as F2
 from torchvision import datasets
 from torch.utils.data import Subset, Dataset
@@ -14,6 +16,7 @@ from PIL import Image
 import cv2
 import numpy as np
 import copy
+from glob import glob
 
 class ISIC2017(Dataset):
     def __init__(self, path, mode, transforms=None):
@@ -194,20 +197,93 @@ class ilsvrc30(Dataset):
                 ])
         return img_transform, mask_transform
     
-
-class CUB_dataset(Dataset):
-    def __init__(self, path, mode, transforms=None):
-        super(CUB_dataset,self).__init__()
-        self.path = path
+class BDD100K(Dataset):
+    def __init__(self, path, mode):
+        super(BDD100K, self).__init__()
         self.mode = mode
-        self.img_path = os.path.join(self.path, 'images.txt')
-        self.train_test_split = os.path.join(self.path, 'train_test_split.txt')
+        self.img_root = os.path.join(path, mode)
+        self.anno_path = os.path.join(path, f'bdd100k_labels_images_{mode}.json')
+        self.classes = {'person':0, 'car':1, 'truck':2, 'bus':3, 'train':4, 'bike':5, 'motor':6, 'rider':7, 'traffic light':8, 'traffic sign':9}
+        with open(self.anno_path, 'r') as f:
+            self.annotation = json.load(f)
+        self.t = self.transform() 
+        
+    def __len__(self):
+        return len(self.annotation)
     
+    def __getitem__(self, idx):
+        img_name = self.annotation[idx]['name']
+        img = Image.open(os.path.join(self.img_root, img_name))
+        boxes = []
+        labels = []
+        for label in self.annotation[idx]["labels"]:
+            if label['category'] not in self.classes.keys():
+                continue
+            labels.append(self.classes[label['category']])
+            boxes.append([label['box2d']['x1'],label['box2d']['y1'],label['box2d']['x2'],label['box2d']['y2']])
+        if len(boxes)==0:
+            print('NO OBJECTS')
+            print(img_name)
+        boxes = torch.as_tensor(boxes, dtype=torch.float32)
+        labels = torch.as_tensor(labels, dtype=torch.int64)
+        image_id = torch.tensor([idx])
+        area = (boxes[:, 3] - boxes[:, 1]) * (boxes[:, 2] - boxes[:, 0])
+        iscrowd = torch.zeros((len(self.classes),), dtype=torch.int64)
+        
+        targets = {}
+        targets["boxes"] = boxes
+        targets["labels"] = labels
+        targets["image_id"] = image_id
+        targets["area"] = area
+        targets["iscrowd"] = iscrowd
+        
+        img, targets = self.t(img, targets)
+        return img, targets
+    
+    def transform(self):
+        normalize = transforms2.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
+        transforms = []
+        transforms.append(T.PILToTensor())
+        transforms.append(T.ConvertImageDtype(torch.float))
+        if self.mode=='train':
+            transforms.append(T.RandomHorizontalFlip(0.5))
+            transforms.append(transforms2.ColorJitter(0.3,0.3,0.3))
+        transforms.append(normalize)
+        return T.Compose(transforms)
+    
+class AutomobileKorea(Dataset):
+    def __init__(self, path, mode):
+        super(AutomobileKorea, self).__init__()
+        if mode=='train': self.mode='Training'
+        if mode=='val': self.mode='Validation'
+        self.img_root = os.path.join(path, 'daytime', 'data', self.mode, 'source')
+        self.anno_root = os.path.join(path, 'daytime', 'data', self.mode, 'label')
+        
+        
     def __len__(self):
         pass
     
-    def __getitem__(self, index):
+    def __getitem__(self):
         pass
+    
+    def transform(self):
+        normalize = transforms2.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
+        if self.mode == 'train':
+            img_transform = transforms2.Compose(
+                [transforms2.Resize((224,224)),
+                transforms2.RandomHorizontalFlip(),
+                # transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3), 
+                transforms2.ColorJitter(brightness=0.3, contrast=0.3),
+                transforms2.ToTensor(),
+                normalize,
+                ])
+        else:
+            img_transform = transforms2.Compose(
+                [transforms2.Resize((224,224)),
+                transforms2.ToTensor(),
+                normalize,
+                ])
+        return img_transform
 
 if __name__ == '__main__':
     path = '/ailab_mat/dataset/ISIC_skin_disease'
