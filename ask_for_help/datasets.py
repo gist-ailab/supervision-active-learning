@@ -17,6 +17,8 @@ import cv2
 import numpy as np
 import copy
 from glob import glob
+import random
+import shutil
 
 class ISIC2017(Dataset):
     def __init__(self, path, mode, transforms=None):
@@ -42,49 +44,84 @@ class ISIC2017(Dataset):
     def __getitem__(self, index):
         img = Image.open(os.path.join(self.img_path, self.gt[index][0]+'.jpg'))
         if int(float(self.gt[index][1]))==1:
-            label = 1
+            label = 1 # mel
         elif int(float(self.gt[index][2]))==1:
-            label = 2
+            label = 0 # bkl
         else:
-            label = 0
+            label = 2 # nv
+        
         mask = Image.open(os.path.join(self.mask_path, self.gt[index][0]+'_segmentation.png'))
         
         img = self.transforms[0](img)
         mask = self.transforms[1](mask)
-        # print(img.dtype)
-        # print(type(label))
-        # print(mask.dtype)
-        # print(type(index))
+        
+        p = random.random()
+        if p > 0.5 and self.mode=='Training':
+            img, mask = F2.hflip(img), F2.hflip(mask)
         return img, label, mask, index
     
     def init_transforms(self):
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
-        if self.mode == 'Training':
-            img_transform = transforms.Compose(
-                [transforms.Resize((224,224)),
-                transforms.RandomHorizontalFlip(),
-                # transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3), 
-                transforms.ColorJitter(brightness=0.3, contrast=0.3),
-                transforms.RandomInvert(p=1.0),
-                transforms.ToTensor(),
-                normalize,
-                ])
-            mask_transform = transforms.Compose(
-                [transforms.Resize((224,224)),
-                transforms.ToTensor()
-                ])
+
+        img_transform = []
+        mask_transform = []
+        
+        img_transform.append(transforms.Resize((256,256)))
+        # img_transform.append(transforms.Resize((512,512)))
+        # if self.mode=='Training':
+        if self.mode=='NONE':
+            img_transform.append(transforms.CenterCrop((224,224)))
+            # img_transform.append(transforms.CenterCrop((448,448)))
+            img_transform.append(transforms.ColorJitter(brightness=0.3, contrast=0.3))
         else:
-            img_transform = transforms.Compose(
-                [transforms.Resize((224,224)),
-                 transforms.RandomInvert(p=1.0),
-                transforms.ToTensor(),
-                normalize,
-                ])
-            mask_transform = transforms.Compose(
-                [transforms.Resize((224,224)),
-                transforms.ToTensor()
-                ])
-        return img_transform, mask_transform
+            img_transform.append(transforms.CenterCrop((224,224)))
+            # img_transform.append(transforms.CenterCrop((448,448)))
+        img_transform.append(transforms.RandomInvert(p=1.0))
+        img_transform.append(transforms.ToTensor())
+        img_transform.append(normalize)
+        
+        mask_transform.append(transforms.Resize((256,256)))
+        mask_transform.append(transforms.CenterCrop((224,224)))
+        # mask_transform.append(transforms.CenterCrop((448,448)))
+        mask_transform.append(transforms.ToTensor())
+        
+        return transforms.Compose(img_transform), transforms.Compose(mask_transform)
+
+class HAM10000(Dataset):
+    def __init__(self, path, mode):
+        super(HAM10000, self).__init__()
+        assert mode=='train' or mode=='test'
+        self.path = path
+        self.mode = mode
+        # self.classes = {'akiec':0, 'bcc':1, 'bkl':2, 'df':3, 'mel':4, 'nv':5, 'vasc':6}
+        # self.classes = {'nv':0, 'mel':1, 'bkl':2, 'akiec':3, 'bcc':4, 'df':5, 'vasc':6}
+        self.classes = {'nv':2, 'mel':1, 'bkl':0}
+        self.img_list = glob(os.path.join(self.path, self.mode, 'nv','*'))\
+            + glob(os.path.join(self.path, self.mode, 'mel','*'))\
+            + glob(os.path.join(self.path, self.mode, 'bkl','*'))
+        self.t = self.transform()
+        
+    def __len__(self):
+        return len(self.img_list)
+    
+    def __getitem__(self, idx):
+        img_path = self.img_list[idx]
+        img = Image.open(img_path).convert('RGB')
+        img = self.t(img)
+        label = self.classes[img_path.split('/')[-2]]
+        return img, label, torch.tensor([0]), idx
+    
+    def transform(self):
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
+        img_transform = []
+        img_transform.append(transforms.Resize((224,224)))
+        if self.mode=='train':
+            img_transform.append(transforms.RandomHorizontalFlip())
+            img_transform.append(transforms.ColorJitter(brightness=0.3, contrast=0.3))
+        img_transform.append(transforms.RandomInvert(p=1.0))
+        img_transform.append(transforms.ToTensor())
+        img_transform.append(normalize)
+        return transforms.Compose(img_transform)
 
 class ilsvrc30(Dataset):
     def __init__(self, path, mode):
