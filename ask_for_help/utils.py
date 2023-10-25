@@ -128,34 +128,34 @@ def activation_map_matching(epoch, model, s_loader, criterion, criterion2, optim
         _, label = torch.max(outputs, 1)
         # print(preds.float())
         loss1 = criterion(outputs, labels)
-        box_1x = [0,0,inputs.shape[2]-1,inputs.shape[3]-1]
-        loss2 = 0
-        for I, label, pred, mask in zip(inputs, labels, label, masks):
-            # print(torch.max(mask))
-            count[label] += 1
-            pred_count[pred] += 1
-            I = I.unsqueeze(0)
-            mask = mask.squeeze()
-            am = gen_am(I, model, device)
-            # model.eval()
-            # with torch.no_grad():
-            _, center = get_point(mask, am, tr=0.5)
-            scaled_cropped_img_2x, box_2x = get_scaled_cropped_img(I, center, scale=2)
-            scaled_cropped_img_3x, box_3x = get_scaled_cropped_img(I, center, scale=3)
+        # box_1x = [0,0,inputs.shape[2]-1,inputs.shape[3]-1]
+        # loss2 = 0
+        # for I, label, pred, mask in zip(inputs, labels, label, masks):
+        #     # print(torch.max(mask))
+        #     count[label] += 1
+        #     pred_count[pred] += 1
+        #     I = I.unsqueeze(0)
+        #     mask = mask.squeeze()
+        #     am = gen_am(I, model, device)
+        #     # model.eval()
+        #     # with torch.no_grad():
+        #     _, center = get_point(mask, am, tr=0.5)
+        #     scaled_cropped_img_2x, box_2x = get_scaled_cropped_img(I, center, scale=2)
+        #     scaled_cropped_img_3x, box_3x = get_scaled_cropped_img(I, center, scale=3)
             
-            scaled_caam_2x = gen_am(scaled_cropped_img_2x, model, device)
-            scaled_caam_3x = gen_am(scaled_cropped_img_3x, model, device)
+        #     scaled_caam_2x = gen_am(scaled_cropped_img_2x, model, device)
+        #     scaled_caam_3x = gen_am(scaled_cropped_img_3x, model, device)
             
-            caams = [am, scaled_caam_2x,scaled_caam_3x]
-            boxes = [box_1x,box_2x,box_3x]
+        #     caams = [am, scaled_caam_2x,scaled_caam_3x]
+        #     boxes = [box_1x,box_2x,box_3x]
             
-            concated_am = concat_ams(caams, boxes, device)
-            # concated_am = concated_am.detach()
-            loss2 += criterion2(concated_am, am)
+        #     concated_am = concat_ams(caams, boxes, device)
+        #     # concated_am = concated_am.detach()
+        #     loss2 += criterion2(concated_am, am)
         # print(loss1.item(), 10*loss2.item())
         # print(label[:5])
-        loss = loss1 + 10*loss2
-        # loss = loss1
+        # loss = loss1 + 10*loss2
+        loss = loss1
         loss.backward()
         optimizer.step()
         running_loss += loss.item()

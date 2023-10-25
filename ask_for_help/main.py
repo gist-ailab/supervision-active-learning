@@ -25,14 +25,14 @@ parser.add_argument('--epoch2', type=int, default=20)
 parser.add_argument('--dataset', type=str, default='ISIC2017')
 parser.add_argument('--query', type=str, default='')
 parser.add_argument('--batch', type=int, default=32)
-parser.add_argument('--lr', type=float, default=1e-5)
+parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--beta1', type=float, default=0.9)
 parser.add_argument('--beta2', type=float, default=0.999)
 parser.add_argument('--seed', type=int, default=0)
 parser.add_argument('--gpu', type=str, default='7')
-parser.add_argument('--mode', type=str, default='point')
+parser.add_argument('--mode', type=str, default='base')
 parser.add_argument('--ratio', type=float, default=1.0)
-parser.add_argument('--note', type=str, default='scaling_withGT')
+parser.add_argument('--note', type=str, default='baseline')
 args = parser.parse_args()
 
 if not args.seed==None:
@@ -86,17 +86,17 @@ if args.dataset == 'ISIC2017':
         }
         model = create_feature_extractor(model, return_nodes=return_nodes)
         model = model.to(device)
-optimizer = optim.Adam(model.parameters(), args.lr, weight_decay=1e-3)
+optimizer = optim.Adam(model.parameters(), args.lr)
 criterion = nn.CrossEntropyLoss()
 
 
 if args.mode=='base':
-    bestAcc = 100.0
-    # for i in range(args.epoch1):
-    #     # train(i, model, trainloader, criterion, optimizer, device)
-    #     train(i, model, testloader1, criterion, optimizer, device)
-    #     bestAcc = test(i, model, valloader, criterion, device, bestAcc, save_path)
-    model.load_state_dict(torch.load(os.path.join(save_path, 'model_76.62_66.67.pth')))
+    bestAcc = 0.0
+    for i in range(args.epoch1):
+        train(i, model, trainloader, criterion, optimizer, device)
+        # train(i, model, testloader1, criterion, optimizer, device)
+        bestAcc = test(i, model, valloader, criterion, device, bestAcc, save_path)
+    model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
     test(-1, model, testloader2, criterion, device, bestAcc, save_path)
     # metric(model, testloader1, num_classes=3, device=device)
 
