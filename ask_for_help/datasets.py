@@ -2,7 +2,7 @@ import os,sys
 import torch
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
-import torchvision.transforms.v2 as transforms2
+# import torchvision.transforms.v2 as transforms2
 import transforms as T
 import torchvision.transforms.functional as F2
 from torchvision import datasets
@@ -21,44 +21,33 @@ import random
 import shutil
 
 class ISIC2017(Dataset):
-    def __init__(self, path, mode, transforms=None):
+    def __init__(self, path, mode):
         super(ISIC2017, self).__init__()
         self.path = path
         self.mode = mode
-        if self.mode=='Test': self.mode='Test_v2'
-        self.csv_path = os.path.join(self.path, self.mode, f'ISIC-2017_{self.mode}_Part3_GroundTruth.csv')
-        self.img_path = os.path.join(self.path, self.mode, f'ISIC-2017_{self.mode}_Data')
-        self.mask_path = os.path.join(self.path, self.mode, f'ISIC-2017_{self.mode}_Part1_GroundTruth')
-        if transforms is not None:
-            self.transforms = transforms
-        else:
-            self.transforms = self.init_transforms()
-        with open(self.csv_path, 'r', newline='') as f:
-            self.gt = csv.reader(f)
-            self.classes = next(iter(self.gt))[1:]
-            self.gt = list(self.gt)
+        self.classes = {'nv':2, 'mel':1, 'bkl':0}
+        self.img_list = glob(os.path.join(self.path, self.mode, 'nv','*'))\
+            + glob(os.path.join(self.path, self.mode, 'mel','*'))\
+            + glob(os.path.join(self.path, self.mode, 'bkl','*'))
+        self.imgt, self.maskt = self.init_transforms()
             
     def __len__(self):
-        return len(self.gt)
+        return len(self.img_list)
     
-    def __getitem__(self, index):
-        img = Image.open(os.path.join(self.img_path, self.gt[index][0]+'.jpg'))
-        if int(float(self.gt[index][1]))==1:
-            label = 1 # mel
-        elif int(float(self.gt[index][2]))==1:
-            label = 0 # bkl
-        else:
-            label = 2 # nv
+    def __getitem__(self, idx):
+        img_path = self.img_list[idx]
+        img_name = img_path.split('/')[-1].split('.')[0]
+        img = Image.open(img_path).convert('RGB')
+        label = img_path.split('/')[-2]
+        mask = Image.open(os.path.join(self.path, f'mask_{self.mode}', label, img_name +'_segmentation.png'))
         
-        mask = Image.open(os.path.join(self.mask_path, self.gt[index][0]+'_segmentation.png'))
-        
-        img = self.transforms[0](img)
-        mask = self.transforms[1](mask)
-        
-        p = random.random()
-        if p > 0.5 and self.mode=='Training':
-            img, mask = F2.hflip(img), F2.hflip(mask)
-        return img, label, mask, index
+        img = self.imgt(img)
+        mask = self.maskt(mask)
+        label = self.classes[label]
+        # p = random.random()
+        # if p > 0.5 and self.mode=='train':
+        #     img, mask = F2.hflip(img), F2.hflip(mask)
+        return img, label, mask, idx
     
     def init_transforms(self):
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
@@ -67,22 +56,18 @@ class ISIC2017(Dataset):
         mask_transform = []
         
         img_transform.append(transforms.Resize((256,256)))
-        # img_transform.append(transforms.Resize((512,512)))
         # if self.mode=='Training':
         if self.mode=='NONE':
             img_transform.append(transforms.CenterCrop((224,224)))
-            # img_transform.append(transforms.CenterCrop((448,448)))
-            img_transform.append(transforms.ColorJitter(brightness=0.3, contrast=0.3))
+            # img_transform.append(transforms.ColorJitter(brightness=0.3, contrast=0.3))
         else:
             img_transform.append(transforms.CenterCrop((224,224)))
-            # img_transform.append(transforms.CenterCrop((448,448)))
-        img_transform.append(transforms.RandomInvert(p=1.0))
+        # img_transform.append(transforms.RandomInvert(p=1.0))
         img_transform.append(transforms.ToTensor())
         img_transform.append(normalize)
         
         mask_transform.append(transforms.Resize((256,256)))
         mask_transform.append(transforms.CenterCrop((224,224)))
-        # mask_transform.append(transforms.CenterCrop((448,448)))
         mask_transform.append(transforms.ToTensor())
         
         return transforms.Compose(img_transform), transforms.Compose(mask_transform)
@@ -117,8 +102,8 @@ class HAM10000(Dataset):
         img_transform.append(transforms.Resize((224,224)))
         if self.mode=='train':
             img_transform.append(transforms.RandomHorizontalFlip())
-            img_transform.append(transforms.ColorJitter(brightness=0.3, contrast=0.3))
-        img_transform.append(transforms.RandomInvert(p=1.0))
+            # img_transform.append(transforms.ColorJitter(brightness=0.3, contrast=0.3))
+        # img_transform.append(transforms.RandomInvert(p=1.0))
         img_transform.append(transforms.ToTensor())
         img_transform.append(normalize)
         return transforms.Compose(img_transform)
@@ -278,13 +263,13 @@ class BDD100K(Dataset):
         return img, targets
     
     def transform(self):
-        normalize = transforms2.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
         transforms = []
         transforms.append(T.PILToTensor())
         transforms.append(T.ConvertImageDtype(torch.float))
         if self.mode=='train':
             transforms.append(T.RandomHorizontalFlip(0.5))
-            transforms.append(transforms2.ColorJitter(0.3,0.3,0.3))
+            transforms.append(transforms.ColorJitter(0.3,0.3,0.3))
         transforms.append(normalize)
         return T.Compose(transforms)
     
@@ -302,25 +287,6 @@ class AutomobileKorea(Dataset):
     
     def __getitem__(self):
         pass
-    
-    def transform(self):
-        normalize = transforms2.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
-        if self.mode == 'train':
-            img_transform = transforms2.Compose(
-                [transforms2.Resize((224,224)),
-                transforms2.RandomHorizontalFlip(),
-                # transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3), 
-                transforms2.ColorJitter(brightness=0.3, contrast=0.3),
-                transforms2.ToTensor(),
-                normalize,
-                ])
-        else:
-            img_transform = transforms2.Compose(
-                [transforms2.Resize((224,224)),
-                transforms2.ToTensor(),
-                normalize,
-                ])
-        return img_transform
 
 if __name__ == '__main__':
     path = '/ailab_mat/dataset/ISIC_skin_disease'

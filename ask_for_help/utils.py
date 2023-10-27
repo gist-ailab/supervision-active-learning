@@ -128,40 +128,62 @@ def activation_map_matching(epoch, model, s_loader, criterion, criterion2, optim
         _, label = torch.max(outputs, 1)
         # print(preds.float())
         loss1 = criterion(outputs, labels)
-        # box_1x = [0,0,inputs.shape[2]-1,inputs.shape[3]-1]
-        # loss2 = 0
-        # for I, label, pred, mask in zip(inputs, labels, label, masks):
-        #     # print(torch.max(mask))
-        #     count[label] += 1
-        #     pred_count[pred] += 1
-        #     I = I.unsqueeze(0)
-        #     mask = mask.squeeze()
-        #     am = gen_am(I, model, device)
-        #     # model.eval()
-        #     # with torch.no_grad():
-        #     _, center = get_point(mask, am, tr=0.5)
-        #     scaled_cropped_img_2x, box_2x = get_scaled_cropped_img(I, center, scale=2)
-        #     scaled_cropped_img_3x, box_3x = get_scaled_cropped_img(I, center, scale=3)
+        box_1x = [0,0,inputs.shape[2]-1,inputs.shape[3]-1]
+        loss2 = 0
+        for I, label, pred, mask in zip(inputs, labels, label, masks):
+            # print(torch.max(mask))
+            count[label] += 1
+            pred_count[pred] += 1
+            I = I.unsqueeze(0)
+            mask = mask.squeeze()
+            am = gen_am(I, model, device)
             
-        #     scaled_caam_2x = gen_am(scaled_cropped_img_2x, model, device)
-        #     scaled_caam_3x = gen_am(scaled_cropped_img_3x, model, device)
+            model.eval()
+            # with torch.no_grad():
+            _, center = get_point(mask, am, tr=0.5)
+            scaled_cropped_img_2x, box_2x = get_scaled_cropped_img(I, center, scale=1.2)
+            scaled_cropped_img_3x, box_3x = get_scaled_cropped_img(I, center, scale=1.6)
             
-        #     caams = [am, scaled_caam_2x,scaled_caam_3x]
-        #     boxes = [box_1x,box_2x,box_3x]
+            scaled_caam_2x = gen_am(scaled_cropped_img_2x, model, device)
+            scaled_caam_3x = gen_am(scaled_cropped_img_3x, model, device)
             
-        #     concated_am = concat_ams(caams, boxes, device)
-        #     # concated_am = concated_am.detach()
-        #     loss2 += criterion2(concated_am, am)
+            caams = [am, scaled_caam_2x,scaled_caam_3x]
+            boxes = [box_1x,box_2x,box_3x]
+            
+            # caams = [am, scaled_caam_3x]
+            # boxes = [box_1x,box_3x]
+            
+            concated_am = concat_ams(caams, boxes, device)
+            concated_am = concated_am.clone().detach()
+            loss2 += criterion2(concated_am, am)
         # print(loss1.item(), 10*loss2.item())
         # print(label[:5])
-        # loss = loss1 + 10*loss2
-        loss = loss1
+        loss = loss1 + loss2
+        # loss = loss1
+        # loss = loss2
         loss.backward()
         optimizer.step()
         running_loss += loss.item()
     print('count : ',count)
     print('preds : ', pred_count)
-    
+
+def front_back_classification(epoch, model, s_loader, criterion, criterion2, optimizer, device):
+    print('\nEpoch: %d'%epoch)
+    model.train()
+    running_loss = 0.0
+    count = [0,0,0]
+    pred_count = [0,0,0]
+    for _, (inputs, labels, masks, _) in enumerate(tqdm(s_loader)):
+        inputs, masks = inputs.to(device), masks.to(device)
+        labels = labels.to(device)
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        outputs = outputs['fc']
+        feat = outputs['layer4']
+        _, label = torch.max(outputs, 1)
+        loss1 = criterion(outputs, labels)
+        
+
 def train_detector(epoch, model, loader, optimizer, device):
     print('\nEpoch: %d'%epoch)
     model.train()
@@ -254,6 +276,7 @@ def data_selection(model, loader, criterion, device, ratio=0.1, mode='random'):
     unselected = []
     entropy_list = []
     total = 0
+    model.eval()
     for i, (inputs, labels, masks, index) in enumerate(tqdm(loader)):
         total += 1
         if mode=='random':
@@ -366,8 +389,11 @@ def metric(model, loader, num_classes, device):
         class_ARoverAP[i] = ((TP + FN) / (TP + FP)).item()
     print(confusion_matrix)
     # print(f'Class AP/AR: {class_ARoverAP},\n mAP/mAR : {torch.sum(torch.stack(list(class_ARoverAP.values())))/num_classes}')
-    print('mAP : ',sum(class_AP.values())/num_classes)
-    print('mAR : ', sum(class_AR.values())/num_classes)
+    mAP = sum(class_AP.values())/num_classes+1e-6
+    mAR = sum(class_AR.values())/num_classes+1e-6
+    print('mAP : ',mAP)
+    print('mAR : ', mAR)
+    print('F1 : ', 2*(mAP * mAR)/(mAP + mAR))
     
 #---------------------------------------------------------------------
 

@@ -17,10 +17,10 @@ from datasets import *
 from utils import *
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dpath1', type=str, default='/ailab_mat/dataset/HAM10000')
-parser.add_argument('--dpath2', type=str, default='/ailab_mat/dataset/ISIC_skin_disease')
-parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000')
-parser.add_argument('--epoch1', type=int, default=100)
+parser.add_argument('--dpath1', type=str, default='/ailab_mat/dataset/HAM10000/balanced')
+parser.add_argument('--dpath2', type=str, default='/ailab_mat/dataset/ISIC_skin_disease/balanced')
+parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000')
+parser.add_argument('--epoch1', type=int, default=60)
 parser.add_argument('--epoch2', type=int, default=20)
 parser.add_argument('--dataset', type=str, default='ISIC2017')
 parser.add_argument('--query', type=str, default='')
@@ -57,19 +57,18 @@ if not os.path.isdir(save_path):
 
 #------------------------------------------------------------
 if args.dataset == 'ISIC2017':
-    trainset = HAM10000(args.dpath1, mode='train')
-    # weighted_trainset = WeightedRandomSampler()
+    trainset = HAM10000(args.dpath1, mode='train') # 3000
     print('Num trainset : ', len(trainset))
-    validset = HAM10000(args.dpath1, mode='test')
+    validset = HAM10000(args.dpath1, mode='test') # 450
     print('Num validset : ', len(validset))
-    testset1 = ISIC2017(args.dpath2, 'Training', None)
+    testset1 = ISIC2017(args.dpath2, mode='train') # 750
     print('Num testset1 : ', len(testset1))
-    testset2 = ISIC2017(args.dpath2, 'Validation', None)
+    testset2 = ISIC2017(args.dpath2, mode='test') # 270
     print('Num testset2 : ', len(testset2))
     
     trainloader = DataLoader(trainset, args.batch, shuffle=True, num_workers=4)
     valloader = DataLoader(validset, args.batch, shuffle=False, num_workers=4)
-    testloader1 = DataLoader(testset1, args.batch, shuffle=True, num_workers=4)
+    testloader1 = DataLoader(testset1, args.batch, shuffle=False, num_workers=4)
     testloader2 = DataLoader(testset2, args.batch, shuffle=False, num_workers=4)
 
     model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
@@ -94,75 +93,47 @@ if args.mode=='base':
     bestAcc = 0.0
     for i in range(args.epoch1):
         train(i, model, trainloader, criterion, optimizer, device)
-        # train(i, model, testloader1, criterion, optimizer, device)
         bestAcc = test(i, model, valloader, criterion, device, bestAcc, save_path)
+    print(bestAcc)
     model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
     test(-1, model, testloader2, criterion, device, bestAcc, save_path)
     # metric(model, testloader1, num_classes=3, device=device)
 
 if args.mode=='point':
-    # bestAcc = 0
-    # for i in range(args.epoch1):
-    #     train(i, model, trainloader, criterion, optimizer, device)
-    #     bestAcc = test(i, model, valloader, criterion, device, bestAcc, save_path)
-    # model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
-    # test(-1, model, testloader2, criterion, device, bestAcc, save_path)
+    model.load_state_dict(torch.load(os.path.join(save_path, '..', 'baseline','model.pth')))
     
-    # optimizer = optim.SGD([{'params':model.layer1.parameters()},
-    #                     {'params':model.layer2.parameters()},
-    #                     {'params':model.layer3.parameters()},
-    #                     {'params':model.layer4.parameters()},
-    #                    ], args.lr, weight_decay=1e-3)
-    # optimizer = optim.SGD(model.layer4.parameters(), args.lr, weight_decay=1e-3)
-    # optimizer2 = optim.SGD(model.fc.parameters(), args.lr, weight_decay=1e-3)
-    # optimizer = optim.SGD(model.parameters(), args.lr, weight_decay=1e-5)
     optimizer = optim.Adam(model.parameters(), args.lr, betas=[args.beta1, args.beta2], eps=1e-8)
     criterion = nn.CrossEntropyLoss()
-    # criterion2 = nn.L1Loss()
-    criterion2 = nn.MSELoss()
-    selection_loader = DataLoader(testset2, batch_size=1, shuffle=False)
+    criterion2 = nn.L1Loss()
+    # criterion2 = nn.MSELoss()
+    selection_loader = DataLoader(testset1, batch_size=1, shuffle=False)
     s_idx, entropy_list = data_selection(model, selection_loader, criterion, device, ratio=args.ratio, mode='low_entropy')
     
-    # import matplotlib.pyplot as plt
-    # plt.plot([data[0] for data in entropy_list])
-    # plt.savefig('./entropy_plot.jpg')
-    # labels = [entropy_list[i][2] for i in range(len(entropy_list)) if entropy_list[i][1] in s_idx]
-    # print(labels)
-    data_len = len(testset2)
-    weight = torch.zeros([data_len])
-    count = [0,0,0]
-    for i in range(data_len):
-        _, label, _, _ = testset2[i]
-        count[label] += 1
-    for i in range(data_len):
-        _, label, _, _ = testset2[i]
-        weight[i] = 1/count[label]
-    weight[[i for i in range(data_len) if i not in s_idx]] = 0 
+    s_subsetRandomSampler = SubsetRandomSampler(s_idx)
+    s_loader = DataLoader(testset1, batch_size=args.batch, shuffle=False, sampler=s_subsetRandomSampler)
     
-    # s_subsetRandomSampler = SubsetRandomSampler(s_idx)
-    s_weightRandomSampler = WeightedRandomSampler(weight, num_samples=data_len*5)
-    s_loader = DataLoader(testset2, batch_size=args.batch, shuffle=False, sampler=s_weightRandomSampler)
-    model.load_state_dict(torch.load('/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000/seed0/baseline/model_76.16_67.33.pth'))
-    
-    # for name, param in model.named_parameters():
-    #     param.requires_grad = False
+    for name, param in model.named_parameters():
+        param.requires_grad = False
     
     # for name, param in model.named_parameters():
     #     if 'fc' in name or 'layer4' in name:
     #         param.requires_grad = True
             
     for name, param in model.named_parameters():
-        if 'layer1' in name:
+        if 'layer4' in name:
             param.requires_grad = True
-    # torch.save(count, './count.pth')
-    # torch.save(weight, './weight.pth')
+            
+    # for name, param in model.named_parameters():
+    #     if 'layer4' in name:
+    #         param.requires_grad = True
+    
     bestAcc = 100.0
-    # test(-1, model, testloader2, criterion, device, bestAcc, save_path)
-    # test(-1, model, testloader1, criterion, device, bestAcc, save_path)
-    metric(model, testloader1, num_classes=3, device=device)
-    bestAcc = 79.30
+    test(-1, model, testloader2, criterion, device, bestAcc, save_path)
+    metric(model, testloader2, num_classes=3, device=device)
+    bestAcc = 0.0
     for i in range(0, args.epoch2):
         activation_map_matching(i, model, s_loader, criterion, criterion2, optimizer, device)
-        bestAcc = test(i, model, testloader1, criterion, device, bestAcc, save_path)
-        metric(model, testloader1, num_classes=3, device=device)
+        bestAcc = test(i, model, testloader2, criterion, device, bestAcc, save_path)
+        metric(model, testloader2, num_classes=3, device=device)
+    torch.save(model.state_dict, os.path.join(save_path, 'model.pth'))
     print(bestAcc)
