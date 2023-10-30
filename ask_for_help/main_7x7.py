@@ -15,6 +15,7 @@ from torch.utils.data import WeightedRandomSampler
 from torch.utils.data import DataLoader, SubsetRandomSampler, Subset, WeightedRandomSampler
 from datasets import *
 from utils import *
+from model import res_size7
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dpath1', type=str, default='/ailab_mat/dataset/HAM10000/balanced')
@@ -76,18 +77,10 @@ if args.dataset == 'ISIC2017':
     if args.mode == 'base':
         model = model.to(device)
     else:
-        return_nodes = {
-            'layer1':'l1',
-            'layer2':'l2',
-            'layer3':'l3',
-            'layer4':'l4',
-            'fc':'fc'
-        }
-        model = create_feature_extractor(model, return_nodes=return_nodes)
+        model = res_size7(num_class=3)
         model = model.to(device)
 optimizer = optim.Adam(model.parameters(), args.lr)
 criterion = nn.CrossEntropyLoss()
-
 
 if args.mode=='base':
     bestAcc = 0.0
@@ -113,16 +106,12 @@ if args.mode=='point':
     s_subsetRandomSampler = SubsetRandomSampler(s_idx)
     s_loader = DataLoader(testset1, batch_size=args.batch, shuffle=False, sampler=s_subsetRandomSampler)
     
-    # for name, param in model.named_parameters():
-    #     param.requires_grad = False
-    
-    # for name, param in model.named_parameters():
-    #     if 'fc' in name or 'layer4' in name:
-    #         param.requires_grad = True
+    for name, param in model.named_parameters():
+        param.requires_grad = False
             
-    # for name, param in model.named_parameters():
-    #     if 'layer4' in name:
-    #         param.requires_grad = True
+    for name, param in model.named_parameters():
+        if 'layer4' in name:
+            param.requires_grad = True
     
     bestAcc = 100.0
     # test(-1, model, testloader2, criterion, device, bestAcc, save_path)

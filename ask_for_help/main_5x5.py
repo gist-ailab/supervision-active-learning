@@ -129,8 +129,8 @@ if args.mode=='point':
     # metric(model, testloader2, num_classes=3, device=device)
     bestAcc = 0.0
     for i in range(0, args.epoch2):
-        activation_map_matching(i, model, s_loader, criterion, criterion2, optimizer, device)
-        # train(i, model, s_loader, criterion, optimizer, device)
+        # activation_map_matching(i, model, s_loader, criterion, criterion2, optimizer, device)
+        train(i, model, s_loader, criterion, optimizer, device)
         bestAcc = test(i, model, testloader2, criterion, device, bestAcc, save_path)
         metric(model, testloader2, num_classes=3, device=device)
     torch.save(model.state_dict, os.path.join(save_path, 'model.pth'))

@@ -115,57 +115,60 @@ def supervision_train1(epoch, model, s_loader, u_loader, criterion1, criterion2,
 # masked img also has L_cls
 def activation_map_matching(epoch, model, s_loader, criterion, criterion2, optimizer, device):
     print('\nEpoch: %d'%epoch)
-    model.train()
     running_loss = 0.0
-    count = [0,0,0]
-    pred_count = [0,0,0]
     for _, (inputs, labels, masks, _) in enumerate(tqdm(s_loader)):
         inputs, masks = inputs.to(device), masks.to(device)
         labels = labels.to(device)
+        model.eval()
+        with torch.no_grad():
+            outputs = model(inputs)
+            feats = outputs['l4']
+            norm_feats = []
+            for I, feat, mask in zip(inputs, feats, masks):
+                I = I.unsqueeze(0)
+                mask = mask.squeeze()
+                h, w = I.shape[-2], I.shape[-1]
+                f_h, f_w = feat.shape[-2], feat.shape[-1]
+
+                am = gen_am(I, model, device)
+                _, center = get_point(mask, am, tr=0.5)
+                encoded_center = [int(center[0]*f_h/h), int(center[1]*f_w/w)]
+                
+                mean_feat = torch.mean(feat, dim=1)
+                norm_feat = (mean_feat-torch.min(mean_feat))/(torch.max(mean_feat)-torch.min(mean_feat))
+                norm_feat = norm_feat.squeeze()
+                norm_feat[norm_feat>0.5] = 1
+                norm_feat[norm_feat<0.5] = 0
+                norm_feat[encoded_center[0], encoded_center[1]] = 1
+                norm_feats.append(norm_feat)
+        norm_feats = torch.stack(norm_feats)
+        norm_feats = norm_feats.to(device)
+        # print("Shape : ",norm_feats.shape)
+        
+        model.train()
         optimizer.zero_grad()
         outputs = model(inputs)
+        feats = outputs['l4']
         outputs = outputs['fc']
+        pred_feats = []
+        for feat in feats:
+            mean_feat = torch.mean(feat, dim=1).squeeze()
+            norm_feat = torch.sigmoid(mean_feat)
+            pred_feats.append(norm_feat)
+        pred_feats = torch.stack(pred_feats)
+        pred_feats = pred_feats.to(device)
+
         _, label = torch.max(outputs, 1)
         # print(preds.float())
         loss1 = criterion(outputs, labels)
-        box_1x = [0,0,inputs.shape[2]-1,inputs.shape[3]-1]
-        loss2 = 0
-        for I, label, pred, mask in zip(inputs, labels, label, masks):
-            # print(torch.max(mask))
-            count[label] += 1
-            pred_count[pred] += 1
-            I = I.unsqueeze(0)
-            mask = mask.squeeze()
-            am = gen_am(I, model, device)
-            
-            model.eval()
-            # with torch.no_grad():
-            _, center = get_point(mask, am, tr=0.5)
-            scaled_cropped_img_2x, box_2x = get_scaled_cropped_img(I, center, scale=1.2)
-            scaled_cropped_img_3x, box_3x = get_scaled_cropped_img(I, center, scale=1.6)
-            
-            scaled_caam_2x = gen_am(scaled_cropped_img_2x, model, device)
-            scaled_caam_3x = gen_am(scaled_cropped_img_3x, model, device)
-            
-            caams = [am, scaled_caam_2x,scaled_caam_3x]
-            boxes = [box_1x,box_2x,box_3x]
-            
-            # caams = [am, scaled_caam_3x]
-            # boxes = [box_1x,box_3x]
-            
-            concated_am = concat_ams(caams, boxes, device)
-            concated_am = concated_am.clone().detach()
-            loss2 += criterion2(concated_am, am)
-        # print(loss1.item(), 10*loss2.item())
+        loss2 = criterion2(pred_feats, norm_feats)
+        
+        # print(loss1.item(), loss2.item())
         # print(label[:5])
-        loss = loss1 + loss2
-        # loss = loss1
-        # loss = loss2
+        loss = loss1 + 0.1*loss2
         loss.backward()
         optimizer.step()
         running_loss += loss.item()
-    print('count : ',count)
-    print('preds : ', pred_count)
 
 def front_back_classification(epoch, model, s_loader, criterion, criterion2, optimizer, device):
     print('\nEpoch: %d'%epoch)
