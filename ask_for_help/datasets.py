@@ -40,7 +40,7 @@ class ISIC2017(Dataset):
         img = Image.open(img_path).convert('RGB')
         label = img_path.split('/')[-2]
         mask = Image.open(os.path.join(self.path, f'mask_{self.mode}', label, img_name +'_segmentation.png'))
-        
+        # print(label)
         img = self.imgt(img)
         mask = self.maskt(mask)
         label = self.classes[label]

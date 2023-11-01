@@ -53,70 +53,13 @@ def train(epoch, model, loader, criterion, optimizer, device):
     # print(f'Max Entropy : {max_entropy}, Min Entropy : {min_entropy}')
     print(f'Train epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
 
-#only origin img has L_cls
-def supervision_train1(epoch, model, s_loader, u_loader, criterion1, criterion2, optimizer, device, base_heatmap, ratio):
-    print('\nEpoch: %d'%epoch)
-    model.train()
-    running_loss = 0.0
-    running_acc = 0.0
-    total = 0
-    count = 0
-    
-    data_len = len(s_loader)+len(u_loader)
-    s_loader = iter(s_loader)
-    u_loader = iter(u_loader)
-    for i in tqdm(range(data_len)):
-        if i%int(1/ratio)==0:
-            inputs, labels, masks, _ = next(s_loader)
-            inputs, labels = inputs.to(device), labels.to(device)
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            f1, f2, f3, f4, out = outputs['l1'],outputs['l2'],outputs['l3'],outputs['l4'],outputs['fc']
-            # print(f1.shape,f2.shape,f3.shape,f4.shape)
-            masked_inputs = masking_input(inputs, masks, base_heatmap, device, mode='mask')
-            m_outputs = model(masked_inputs)
-            
-            mf1, mf2, mf3, mf4, m_out = m_outputs['l1'],m_outputs['l2'],m_outputs['l3'],m_outputs['l4'],m_outputs['fc']
-            # print(mf1.shape,mf2.shape,mf3.shape,mf4.shape)
-            loss2 = (4-criterion2(f1, mf1).mean()-criterion2(f2, mf2).mean()-criterion2(f3, mf3).mean()-criterion2(f4, mf4).mean())/4
-            # loss3 = criterion1(m_out, labels)
-            
-            _, pred = torch.max(out, 1)
-            total += out.size(0)
-            running_acc += (pred == labels).sum().item()
-            out = out.float()
-            loss1 = criterion1(out, labels)
-            
-            loss = loss1 + loss2
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item()
-        else:
-            inputs, labels, _, _ = next(u_loader)
-            inputs, labels = inputs.to(device), labels.to(device)
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            f1, f2, f3, f4, out = outputs['l1'],outputs['l2'],outputs['l3'],outputs['l4'],outputs['fc']
-            
-            _, pred = torch.max(out, 1)
-            total += out.size(0)
-            running_acc += (pred == labels).sum().item()
-            out = out.float()
-            loss = criterion1(out, labels)
-            
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item()
-        
-    total_loss = running_loss / data_len
-    total_acc = 100 * running_acc / total
-    print(f'Train epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
-
-# masked img also has L_cls
 def activation_map_matching(epoch, model, s_loader, criterion, criterion2, optimizer, device):
     print('\nEpoch: %d'%epoch)
-    running_loss = 0.0
+    running_loss1 = 0.0
+    running_loss2 = 0.0
+    total = 0
     for _, (inputs, labels, masks, _) in enumerate(tqdm(s_loader)):
+        total += inputs.shape[0]
         inputs, masks = inputs.to(device), masks.to(device)
         labels = labels.to(device)
         model.eval()
@@ -132,14 +75,16 @@ def activation_map_matching(epoch, model, s_loader, criterion, criterion2, optim
 
                 am = gen_am(I, model, device)
                 _, center = get_point(mask, am, tr=0.5)
-                encoded_center = [int(center[0]*f_h/h), int(center[1]*f_w/w)]
+                encoded_center = [int(center[0]*7/h), int(center[1]*7/w)]
                 
-                mean_feat = torch.mean(feat, dim=1)
+                mean_feat = torch.mean(feat, dim=0)
+                # mean_feat = mean_feat.unsqueeze(0).unsqueeze(0)
+                # mean_feat = F.interpolate(mean_feat, size=(5,5), mode='bilinear')
                 norm_feat = (mean_feat-torch.min(mean_feat))/(torch.max(mean_feat)-torch.min(mean_feat))
                 norm_feat = norm_feat.squeeze()
                 norm_feat[norm_feat>0.5] = 1
                 norm_feat[norm_feat<0.5] = 0
-                norm_feat[encoded_center[0], encoded_center[1]] = 1
+                norm_feat[encoded_center[1], encoded_center[0]] = 1
                 norm_feats.append(norm_feat)
         norm_feats = torch.stack(norm_feats)
         norm_feats = norm_feats.to(device)
@@ -152,8 +97,12 @@ def activation_map_matching(epoch, model, s_loader, criterion, criterion2, optim
         outputs = outputs['fc']
         pred_feats = []
         for feat in feats:
-            mean_feat = torch.mean(feat, dim=1).squeeze()
-            norm_feat = torch.sigmoid(mean_feat)
+            mean_feat = torch.mean(feat, dim=0)
+            # mean_feat = mean_feat.unsqueeze(0).unsqueeze(0)
+            # mean_feat = F.interpolate(mean_feat, size=(5,5), mode='bilinear')
+            mean_feat = mean_feat.squeeze()
+            # mean_feat = torch.sigmoid(mean_feat)
+            norm_feat = (mean_feat-torch.min(mean_feat))/(torch.max(mean_feat)-torch.min(mean_feat))
             pred_feats.append(norm_feat)
         pred_feats = torch.stack(pred_feats)
         pred_feats = pred_feats.to(device)
@@ -165,49 +114,134 @@ def activation_map_matching(epoch, model, s_loader, criterion, criterion2, optim
         
         # print(loss1.item(), loss2.item())
         # print(label[:5])
-        loss = loss1 + 0.1*loss2
+        loss = loss1 + 1000*loss2
         loss.backward()
         optimizer.step()
-        running_loss += loss.item()
+        running_loss1 += loss1.item()
+        running_loss2 += loss2.item()
+    print("Loss 1 : ", running_loss1 / total)
+    print("Loss 2 : ", 1000*running_loss2 / total)
 
-def front_back_classification(epoch, model, s_loader, criterion, criterion2, optimizer, device):
+def box_matching(epoch, model, model2, s_loader, criterion, criterion2, optimizer, device, device2):
     print('\nEpoch: %d'%epoch)
     model.train()
-    running_loss = 0.0
-    count = [0,0,0]
-    pred_count = [0,0,0]
+    model2.eval()
+    running_loss1 = 0.0
+    running_loss2 = 0.0
+    running_acc = 0.0
+    total = 0
     for _, (inputs, labels, masks, _) in enumerate(tqdm(s_loader)):
+        total += inputs.shape[0]
         inputs, masks = inputs.to(device), masks.to(device)
         labels = labels.to(device)
         optimizer.zero_grad()
-        outputs = model(inputs)
-        outputs = outputs['fc']
-        feat = outputs['layer4']
-        _, label = torch.max(outputs, 1)
-        loss1 = criterion(outputs, labels)
-        
 
-def train_detector(epoch, model, loader, optimizer, device):
+        enc_mask = F.interpolate(masks, size=(7,7), mode='bilinear').squeeze() # b,7,7
+        outputs = model(inputs)
+        feat = outputs['l4']
+        outputs = outputs['fc']
+        _, pred = torch.max(outputs, 1)
+        running_acc += (pred == labels).sum().item()
+        loss1 = criterion(outputs, labels)
+        loss2 = 0
+        for I, label, mask in zip(inputs, labels, masks):
+            bbox = gen_pseudo_box_by_CAM(I, mask.squeeze(0), model2, device2)
+            cams = gen_softmax_cams(I, model, device)
+            cam = cams[label]
+            cam_lbl = torch.zeros_like(cam).to(device)
+            cam_lbl[bbox[0]:bbox[2],bbox[1]:bbox[3]] = 1
+            loss2 += criterion2(cam, cam_lbl)
+        loss = loss1 + 0.01*loss2
+        loss.backward()
+        optimizer.step()
+        running_loss1 += loss1.item()
+        running_loss2 += 0.01*loss2.item()
+    total_acc = 100 * running_acc / total
+    print("Acc : ", total_acc)
+    print("Loss 1 : ", running_loss1 / total)
+    print("Loss 2 : ", running_loss2 / total)
+
+def box_feat_matching(epoch, model, model2, s_loader, criterion, criterion2, optimizer, device, device2):
     print('\nEpoch: %d'%epoch)
     model.train()
-    train_loss_list = []
+    model2.eval()
+    running_loss1 = 0.0
+    running_loss2 = 0.0
+    running_loss3 = 0.0
     running_acc = 0.0
     total = 0
-    for _, (images, targets) in enumerate(tqdm(loader)):
-        images = list(img.to(device) for img in images)
-        targets = [{k:v.to(device) for k,v in t.items()} for t in targets]
-        # print(targets[0])
-        loss_dict = model(images, targets)
-        losses = sum(loss for loss in loss_dict.values())
-        loss_value = losses.item()
-        total += len(images)
-        train_loss_list.append(loss_value)
-        losses.backward()
+    for _, (inputs, labels, masks, _) in enumerate(tqdm(s_loader)):
+        total += inputs.shape[0]
+        inputs, masks = inputs.to(device), masks.to(device)
+        labels = labels.to(device)
+        optimizer.zero_grad()
+
+        enc_mask = F.interpolate(masks, size=(7,7), mode='bilinear').squeeze() # b,7,7
+        outputs = model(inputs)
+        # feat11, feat12, feat13, feat14 = outputs['l1'],outputs['l2'],outputs['l3'],outputs['l4']
+        feat14 = outputs['l4']
+        outputs = outputs['fc']
+        _, pred = torch.max(outputs, 1)
+        running_acc += (pred == labels).sum().item()
+        loss1 = criterion(outputs, labels)
+        cropped_imgs = []
+        for I, label, mask in zip(inputs, labels, masks):
+            bbox = gen_pseudo_box_by_CAM(I, mask.squeeze(0), model2, device2)
+            # print(I.shape)
+            cropped_img = F2.resized_crop(I.unsqueeze(0), bbox[0],bbox[1],bbox[2]-bbox[0],bbox[3]-bbox[1],size=(224,224))
+            
+            # cropped_img = torch.zeros_like(I.unsqueeze(0))
+            # cropped_img[:,:,bbox[0]:bbox[2],bbox[1]:bbox[3]] = F2.crop(I.unsqueeze(0).unsqueeze(0), bbox[0],bbox[1],bbox[2]-bbox[0],bbox[3]-bbox[1])
+            cropped_img = cropped_img.squeeze()
+            cropped_imgs.append(cropped_img)
+        cropped_imgs = torch.stack(cropped_imgs).to(device)
+        outputs2 = model(cropped_imgs)
+        # feat21, feat22, feat23, feat24 = outputs2['l1'],outputs2['l2'],outputs2['l3'],outputs2['l4']
+        feat24 = outputs2['l4']
+        outputs2 = outputs2['fc']
+
+        # feat14 = torch.view(-1, feat14.shape[1], feat14.shape[2]*feat14.shape[3])
+        feat14 = F.adaptive_avg_pool2d(feat14, (1,1)) # b, 2048, 1, 1
+        feat14 = torch.flatten(feat14, 1) # b, 2048
+        feat14 = F.normalize(feat14, p=2.0, dim=1) # b, 2048
+
+        feat24 = F.adaptive_avg_pool2d(feat24, (1,1)) # b, 2048, 1, 1
+        feat24 = torch.flatten(feat24, 1) # b, 2048
+        feat24 = F.normalize(feat24, p=2.0, dim=1) 
+
+        loss2 = criterion(outputs2, labels)
+        
+        # loss3 = 1-torch.mean(criterion2(outputs,outputs2)) +\
+        #         1-torch.mean(criterion2(feat11, feat21)) +\
+        #         1-torch.mean(criterion2(feat12, feat22)) +\
+        #         1-torch.mean(criterion2(feat13, feat23)) +\
+        #         1-torch.mean(criterion2(feat14, feat24))
+
+        # print(feat14.shape, feat24.shape)
+        loss3 = 1-torch.mean(criterion2(feat14,feat24))
+
+        loss = loss1 + loss2 + loss3
+        loss.backward()
         optimizer.step()
-    # print(train_loss_list)
-    # print(total)
-    return sum(train_loss_list)/total
+        running_loss1 += loss1.item()
+        running_loss2 += loss2.item()
+        running_loss3 += loss3.item()
+    total_acc = 100 * running_acc / total
+    print("Acc : ", total_acc)
+    print("Loss 1 : ", running_loss1 / total)
+    print("Loss 2 : ", running_loss2 / total)
+    print("Loss 3 : ", running_loss3 / total)
+
+def point_regression(epoch, model, model2, s_loader, criterion, criterion2, optimizer, device, device2):
+    print('\nEpoch: %d'%epoch)
+    model.train()
+    model2.eval()
+    running_loss1 = 0.0
+    running_loss2 = 0.0
+    running_acc = 0.0
+    total = 0
     
+
 def test(epoch, model, loader, criterion, device, bestAcc, spath):
     print('\nEpoch: %d'%epoch)
     model.eval()
@@ -235,44 +269,6 @@ def test(epoch, model, loader, criterion, device, bestAcc, spath):
             return total_acc
         else:
             return bestAcc
-        
-def val_detector(epoch, model, loader, device, bestAcc, spath):
-    print('\nEpoch: %d'%epoch)
-    # model.eval()
-    val_loss_list = []
-    running_acc = 0.0
-    total = 0
-    with torch.no_grad():
-        for _, (images, targets) in enumerate(tqdm(loader)):
-            images = list(img.to(device) for img in images)
-            targets = [{k:v.to(device) for k,v in t.items()} for t in targets]
-            loss_dict = model(images, targets)
-            # model.eval()
-            # pred = model(images)
-            # print(pred[0])
-            # model.train()
-            # print(loss_dict)
-            losses = sum(loss for loss in loss_dict.values())
-            loss_value = losses.item()
-            total += len(images)
-            val_loss_list.append(loss_value)
-        return sum(val_loss_list)/total
-
-def CAM(feats, weights, c_idx, height=224, width=224):
-    h, w = 14,14
-    feat = torch.reshape(feats, [-1, 2048, h*w])
-
-    weight = weights[c_idx]
-    weight = weight.unsqueeze(0).unsqueeze(0)
-    cam = torch.bmm(weight, feat)
-    cam = torch.reshape(cam, (1,h,w))
-    cam = cam-torch.min(cam)
-    cam = cam/torch.max(cam)
-    cam = cam.unsqueeze(1)
-    
-    cam = F.interpolate(cam, size=(height,width), mode='bilinear')
-    cam = cam.squeeze()
-    return cam
 
 def data_selection(model, loader, criterion, device, ratio=0.1, mode='random'):
     selected = []
@@ -324,46 +320,6 @@ def data_selection(model, loader, criterion, device, ratio=0.1, mode='random'):
                 break
         print(count)
     return selected, entropy_list
-
-def masking_input(inputs, masks, base_heatmap, device, mode='point'):
-    if mode=='point':
-        masked_inputs = []
-        for img,mask in zip(inputs,masks):
-            mask_np = mask.numpy()
-            center = ndimage.center_of_mass(mask_np)
-            center = center[1:]
-            # print(center)
-            # print(torch.tensor(center, dtype=int).shape)
-            heatmap = torch.clone(base_heatmap)
-            heatmap = (heatmap - torch.tensor(center, dtype=int))/112
-            heatmap = heatmap*heatmap
-            heatmap = torch.sum(heatmap, dim=-1)
-            heatmap = -1*heatmap/(1.5)**2
-            heatmap = torch.exp(heatmap)
-            heatmap = heatmap*heatmap
-            heatmap = heatmap.to(device)
-            masked_inputs.append(img*heatmap)
-        masked_inputs = torch.stack(masked_inputs)
-        
-    elif mode=='box':
-        boxes = masks_to_boxes(masks)
-        cropped_imgs = []
-        for img, box in zip(inputs, boxes):
-            cropped_img = F2.crop(img, box[1],box[0],box[3]-box[1],box[2]-box[0])
-            background = torch.zeros_like(img)
-            background[:,box[1]:box[3],box[0]:box[2]] = cropped_img
-            cropped_imgs.append(background)
-        masked_inputs = torch.stack(cropped_imgs)
-        
-    elif mode=='mask':
-        masks = masks.to(device)
-        masks[masks==0] = 0.0
-        # print(inputs.shape)
-        # print(masks.shape)
-        masked_inputs = inputs * masks
-        # print(masked_inputs.shape)
-
-    return masked_inputs
 
 def metric(model, loader, num_classes, device):
     model.eval()
@@ -424,50 +380,130 @@ def get_point(Mask, CAM, tr=0.7):
     cy, cx = max_contour.centroid
     return binary_cam, (cx, cy)
 
-# img, point, scale로 crop 된 이미지 생성
-def get_scaled_cropped_img(img, point, scale=2.0):
-    height, width = img.shape[-2], img.shape[-1]
-    s_height, s_width = height/scale, width/scale
-    lx, rx = int(point[0] - s_width/2), int(point[0] + s_width/2)
-    ty, by = int(point[1] - s_height/2), int(point[1] + s_height/2)
-    
-    if lx <= 0: lx = 0
-    if ty <= 0: ty = 0
-    if rx >= width: rx = width-1
-    if by >= height: by = height-1
-    scaled_cropped_img = F2.resized_crop(img, ty, lx, by-ty, rx-lx, [height, width])
-    # print(scaled_cropped_img.shape)
-    return scaled_cropped_img, [ty, lx, by-ty, rx-lx]
+def get_center_box(map, tr=0.5, mode='all'):
+    map = map.clone()
+    map[map>=tr]=1
+    map[map<tr] = 0
+    lbl_0 = skimage.measure.label(map.detach().cpu().numpy())
+    props = skimage.measure.regionprops(lbl_0)
+    if mode=='all':
+        points = []
+        boxes = []
+        for prop in props:
+            cy, cx = prop.centroid
+            minr, minc, maxr, maxc = prop.bbox
+            boxes.append([minr, minc, maxr-1, maxc-1]) # y_min, x_min, y_max, x_max
+            points.append(torch.tensor([cx,cy]))
+    if mode=='max':
+        points = None
+        boxes = None
+        area = 0
+        for prop in props:
+            if prop.area > area:
+                area = prop.area
+                cy, cx = prop.centroid
+                minr, minc, maxr, maxc = prop.bbox
+                points = torch.tensor([cx,cy])
+                boxes = [minr, minc, maxr, maxc]
+    return points, boxes
 
-def gen_caam(inputs, model, device):
-    model.eval()
+
+def gen_cams(inputs, model, device, interpolate=False):
     inputs = inputs.to(device)
-    with torch.no_grad():
-        outputs = model(inputs)
+    outputs = model(inputs.unsqueeze(0))
+    f4 = outputs['l4']
+    height, width = inputs.shape[-2], inputs.shape[-1]
+    feat = torch.reshape(f4, [-1,2048,7*7])
+    weights = list(model.parameters())[-2]
+    cams = []
+    for i in range(len(weights)):
+        weight = weights[i]
+        weight = weight.unsqueeze(0).unsqueeze(0)
+        cam = torch.bmm(weight, feat)
+        cam = torch.reshape(cam, (1,7,7))
+        cam = cam - (torch.max(cam)+torch.min(cam))/2
+        cam = torch.sigmoid(cam)
+        cam = cam.unsqueeze(1)
+        if interpolate==True:
+            cam = F.interpolate(cam, size=(height, width), mode='bilinear')
+        cams += cam
+    cams = torch.stack(cams)
+    cams = cams.squeeze()
+    return cams
+
+def gen_softmax_cams(inputs,model,device):
+    inputs = inputs.to(device)
+    outputs = model(inputs.unsqueeze(0))
     f4 = outputs['l4']
 
     height, width = inputs.shape[-2], inputs.shape[-1]
     feat = torch.reshape(f4, [-1,2048,7*7])
     weights = list(model.parameters())[-2]
-    caam = torch.zeros((height, width)).to(device)
+    biases = list(model.parameters())[-1]
+    cams = []
     for i in range(len(weights)):
         weight = weights[i]
+        bias = biases[i]
         weight = weight.unsqueeze(0).unsqueeze(0)
         cam = torch.bmm(weight, feat)
         # print(cam.shape)
         cam = torch.reshape(cam, (1,7,7))
-        cam = cam-torch.min(cam)
-        cam = cam/torch.max(cam)
-        # cam = torch.sigmoid(cam)
-        cam = cam.unsqueeze(1)
-        # print(caam[:1,:1])
-        cam = F.interpolate(cam, size=(height, width), mode='bilinear')
-        cam = cam.squeeze()
-        caam += cam
-        
-    caam = caam-torch.min(caam)
-    caam = caam/torch.max(caam)
-    return caam
+        cam = cam.unsqueeze(1)+bias
+        cam = F.interpolate(cam, size=(height, width), mode='bicubic')
+        cam = torch.softmax(cam, dim=-1)
+        # cam = cam.squeeze()
+        cams.append(cam)
+    cams = torch.stack(cams)
+    cams = cams.squeeze()
+    return cams
+
+def find_nearest_points(points1, points2): # points1 : Mask, points2 : CAM
+    dist_list = torch.cdist(points1, points2, p=2)
+    pair_list = []
+    for i, dists in enumerate(dist_list):
+        idx = torch.argmin(dists)
+        pair_list.append(torch.tensor([i, idx])) # idx of points
+    return pair_list
+
+def gen_pseudo_box(center, bbox):
+    # top_left = torch.tensor([bbox[1], bbox[0]], dtype=torch.float) # min_x, min_y
+    # top_right = torch.tensor([bbox[3], bbox[0]], dtype=torch.float) # max_x, min_y
+    # bottom_left = torch.tensor([bbox[1], bbox[2]], dtype=torch.float) # min_x, max_y
+    # bottom_right = torch.tensor([bbox[3], bbox[2]], dtype=torch.float) # max_x, max_y
+
+    top_left = torch.tensor([bbox[1], bbox[0]], dtype=torch.double) # min_x, min_y
+    top_right = torch.tensor([bbox[3], bbox[0]], dtype=torch.double) # max_x, min_y
+    bottom_left = torch.tensor([bbox[1], bbox[2]], dtype=torch.double) # min_x, max_y
+    bottom_right = torch.tensor([bbox[3], bbox[2]], dtype=torch.double) # max_x, max_y
+    box_points = torch.stack([top_left,top_right,bottom_left,bottom_right])
+
+    dist_list = torch.cdist(center.unsqueeze(0), box_points)
+    box_idx = torch.argmax(dist_list)
+    Farthest_point = box_points[box_idx]
+    dx = torch.abs(center[0]-Farthest_point[0])
+    dy = torch.abs(center[1]-Farthest_point[1])
+    cx, cy = center
+    minr, minc, maxr, maxc = cy-dy, cx-dx, cy+dy, cx+dx 
+    if minr < 0: minr = 0
+    if minc < 0: minc = 0
+    if maxr > 223: maxr = 223
+    if maxc > 223: maxc = 223
+    return torch.tensor([int(minr), int(minc), int(maxr), int(maxc)])
+
+def gen_pseudo_box_by_CAM(inputs, mask, model, device):
+    inputs = inputs.to(device)
+    outputs = model(inputs.unsqueeze(0))
+    outputs = outputs['fc']
+    _, pred = torch.max(outputs, 1)
+    cams = gen_cams(inputs,model,device)
+    cam = cams[pred.item()]
+    cam = F.interpolate(cam.unsqueeze(0).unsqueeze(0), size=(224,224), mode='bilinear').squeeze()
+    m_point, m_box = get_center_box(mask, mode='max')
+    c_points, c_boxes = get_center_box(cam, tr=0.5)
+    points_pair = find_nearest_points(m_point.unsqueeze(0), torch.stack(c_points))
+    s_cam_point, s_cam_box = c_points[points_pair[0][1]], c_boxes[points_pair[0][1]]
+    pseudo_box = gen_pseudo_box(m_point, s_cam_box)
+    return pseudo_box
 
 # Activation map
 def gen_am(inputs, model, device):
@@ -489,6 +525,21 @@ def gen_am(inputs, model, device):
     # print(AM.shape)
     return AM
 
+# img, point, scale로 crop 된 이미지 생성
+def get_scaled_cropped_img(img, point, scale=2.0):
+    height, width = img.shape[-2], img.shape[-1]
+    s_height, s_width = height/scale, width/scale
+    lx, rx = int(point[0] - s_width/2), int(point[0] + s_width/2)
+    ty, by = int(point[1] - s_height/2), int(point[1] + s_height/2)
+    
+    if lx <= 0: lx = 0
+    if ty <= 0: ty = 0
+    if rx >= width: rx = width-1
+    if by >= height: by = height-1
+    scaled_cropped_img = F2.resized_crop(img, ty, lx, by-ty, rx-lx, [height, width])
+    # print(scaled_cropped_img.shape)
+    return scaled_cropped_img, [ty, lx, by-ty, rx-lx]
+
 # zoom된 caam을 기존 caam에 concat하여 하나로 합침
 def concat_ams(caams, boxes, device):
     height, width = caams[0].shape[-2], caams[0].shape[-1]
@@ -501,3 +552,80 @@ def concat_ams(caams, boxes, device):
         final_caam = torch.clamp(final_caam, min=0, max=1.0)
     return final_caam
 
+def train_detector(epoch, model, loader, optimizer, device):
+    print('\nEpoch: %d'%epoch)
+    model.train()
+    train_loss_list = []
+    running_acc = 0.0
+    total = 0
+    for _, (images, targets) in enumerate(tqdm(loader)):
+        images = list(img.to(device) for img in images)
+        targets = [{k:v.to(device) for k,v in t.items()} for t in targets]
+        # print(targets[0])
+        loss_dict = model(images, targets)
+        losses = sum(loss for loss in loss_dict.values())
+        loss_value = losses.item()
+        total += len(images)
+        train_loss_list.append(loss_value)
+        losses.backward()
+        optimizer.step()
+    # print(train_loss_list)
+    # print(total)
+    return sum(train_loss_list)/total
+
+def val_detector(epoch, model, loader, device, bestAcc, spath):
+    print('\nEpoch: %d'%epoch)
+    # model.eval()
+    val_loss_list = []
+    running_acc = 0.0
+    total = 0
+    with torch.no_grad():
+        for _, (images, targets) in enumerate(tqdm(loader)):
+            images = list(img.to(device) for img in images)
+            targets = [{k:v.to(device) for k,v in t.items()} for t in targets]
+            loss_dict = model(images, targets)
+            losses = sum(loss for loss in loss_dict.values())
+            loss_value = losses.item()
+            total += len(images)
+            val_loss_list.append(loss_value)
+        return sum(val_loss_list)/total
+
+def masking_input(inputs, masks, base_heatmap, device, mode='point'):
+    if mode=='point':
+        masked_inputs = []
+        for img,mask in zip(inputs,masks):
+            mask_np = mask.numpy()
+            center = ndimage.center_of_mass(mask_np)
+            center = center[1:]
+            # print(center)
+            # print(torch.tensor(center, dtype=int).shape)
+            heatmap = torch.clone(base_heatmap)
+            heatmap = (heatmap - torch.tensor(center, dtype=int))/112
+            heatmap = heatmap*heatmap
+            heatmap = torch.sum(heatmap, dim=-1)
+            heatmap = -1*heatmap/(1.5)**2
+            heatmap = torch.exp(heatmap)
+            heatmap = heatmap*heatmap
+            heatmap = heatmap.to(device)
+            masked_inputs.append(img*heatmap)
+        masked_inputs = torch.stack(masked_inputs)
+        
+    elif mode=='box':
+        boxes = masks_to_boxes(masks)
+        cropped_imgs = []
+        for img, box in zip(inputs, boxes):
+            cropped_img = F2.crop(img, box[1],box[0],box[3]-box[1],box[2]-box[0])
+            background = torch.zeros_like(img)
+            background[:,box[1]:box[3],box[0]:box[2]] = cropped_img
+            cropped_imgs.append(background)
+        masked_inputs = torch.stack(cropped_imgs)
+        
+    elif mode=='mask':
+        masks = masks.to(device)
+        masks[masks==0] = 0.0
+        # print(inputs.shape)
+        # print(masks.shape)
+        masked_inputs = inputs * masks
+        # print(masked_inputs.shape)
+
+    return masked_inputs

@@ -29,7 +29,7 @@ parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--beta1', type=float, default=0.9)
 parser.add_argument('--beta2', type=float, default=0.999)
 parser.add_argument('--seed', type=int, default=0)
-parser.add_argument('--gpu', type=str, default='7')
+parser.add_argument('--gpu', type=str, default='6,7')
 parser.add_argument('--mode', type=str, default='base')
 parser.add_argument('--ratio', type=float, default=1.0)
 parser.add_argument('--note', type=str, default='baseline')
@@ -39,7 +39,8 @@ if not args.seed==None:
     random.seed(args.seed)
     torch.random.manual_seed(args.seed)
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device1 = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+device2 = 'cuda:1' if torch.cuda.is_available() else 'cpu'
 
 if not os.path.isdir(args.spath):
     os.mkdir(args.spath)
@@ -50,7 +51,7 @@ else:
     save_path = os.path.join(args.spath, 'current')
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
-    
+save_path = os.path.join(save_path, 'PointMatching')
 save_path = os.path.join(save_path, args.note)
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
@@ -68,13 +69,13 @@ if args.dataset == 'ISIC2017':
     
     trainloader = DataLoader(trainset, args.batch, shuffle=True, num_workers=4)
     valloader = DataLoader(validset, args.batch, shuffle=False, num_workers=4)
-    testloader1 = DataLoader(testset1, args.batch, shuffle=False, num_workers=4)
+    testloader1 = DataLoader(testset1, args.batch, shuffle=True, num_workers=4)
     testloader2 = DataLoader(testset2, args.batch, shuffle=False, num_workers=4)
 
     model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
     model.fc = nn.Linear(2048, 3)
     if args.mode == 'base':
-        model = model.to(device)
+        model = model.to(device1)
     else:
         return_nodes = {
             'layer1':'l1',
@@ -84,7 +85,7 @@ if args.dataset == 'ISIC2017':
             'fc':'fc'
         }
         model = create_feature_extractor(model, return_nodes=return_nodes)
-        model = model.to(device)
+        model = model.to(device1)
 optimizer = optim.Adam(model.parameters(), args.lr)
 criterion = nn.CrossEntropyLoss()
 
@@ -92,46 +93,63 @@ criterion = nn.CrossEntropyLoss()
 if args.mode=='base':
     bestAcc = 0.0
     for i in range(args.epoch1):
-        train(i, model, trainloader, criterion, optimizer, device)
-        bestAcc = test(i, model, valloader, criterion, device, bestAcc, save_path)
+        train(i, model, trainloader, criterion, optimizer, device1)
+        bestAcc = test(i, model, valloader, criterion, device1, bestAcc, save_path)
     print(bestAcc)
     model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
-    test(-1, model, testloader2, criterion, device, bestAcc, save_path)
-    # metric(model, testloader1, num_classes=3, device=device)
+    test(-1, model, testloader2, criterion, device1, bestAcc, save_path)
+    # metric(model, testloader1, num_classes=3, device=device1)
 
 if args.mode=='point':
-    model.load_state_dict(torch.load(os.path.join(save_path, '..', 'baseline','model.pth')))
+    # model.load_state_dict(torch.load(os.path.join(save_path, '..', 'baseline','model.pth')))
+    model.load_state_dict(torch.load('/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/PointMatching/baseline/ACC_78.22.pth'))
     
+    model2 = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+    model2.fc = nn.Linear(2048, 3)
+    return_nodes = {
+        'layer1':'l1',
+        'layer2':'l2',
+        'layer3':'l3',
+        'layer4':'l4',
+        'fc':'fc'
+    }
+    model2 = create_feature_extractor(model2, return_nodes=return_nodes)
+    model2 = model2.to(device2)
+    model2.load_state_dict(torch.load('/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/PointMatching/baseline/ACC_78.22.pth'))
+    
+    for name, param in model2.named_parameters():
+        param.requires_grad = False
+
     optimizer = optim.Adam(model.parameters(), args.lr, betas=[args.beta1, args.beta2], eps=1e-8)
     criterion = nn.CrossEntropyLoss()
     # criterion2 = nn.L1Loss()
     # criterion2 = nn.MSELoss()
-    criterion2 = nn.CrossEntropyLoss()
-    selection_loader = DataLoader(testset1, batch_size=1, shuffle=False)
-    s_idx, entropy_list = data_selection(model, selection_loader, criterion, device, ratio=args.ratio, mode='low_entropy')
+    # criterion2 = nn.BCELoss()
+    criterion2 = nn.CosineSimilarity()
+    # criterion2 = nn.CrossEntropyLoss()
+    # selection_loader = DataLoader(testset1, batch_size=1, shuffle=False)
+    # s_idx, entropy_list = data_selection(model, selection_loader, criterion, device1, ratio=args.ratio, mode='low_entropy')
     
-    s_subsetRandomSampler = SubsetRandomSampler(s_idx)
-    s_loader = DataLoader(testset1, batch_size=args.batch, shuffle=False, sampler=s_subsetRandomSampler)
+    # s_subsetRandomSampler = SubsetRandomSampler(s_idx)
+    # s_loader = DataLoader(testset1, batch_size=args.batch, shuffle=False, sampler=s_subsetRandomSampler)
     
     # for name, param in model.named_parameters():
     #     param.requires_grad = False
-    
-    # for name, param in model.named_parameters():
-    #     if 'fc' in name or 'layer4' in name:
-    #         param.requires_grad = True
             
     # for name, param in model.named_parameters():
     #     if 'layer4' in name:
     #         param.requires_grad = True
     
     bestAcc = 100.0
-    # test(-1, model, testloader2, criterion, device, bestAcc, save_path)
-    # metric(model, testloader2, num_classes=3, device=device)
+    # test(-1, model, testloader2, criterion, device1, bestAcc, save_path)
+    # metric(model, testloader2, num_classes=3, device=device1)
     bestAcc = 0.0
     for i in range(0, args.epoch2):
-        activation_map_matching(i, model, s_loader, criterion, criterion2, optimizer, device)
-        # train(i, model, s_loader, criterion, optimizer, device)
-        bestAcc = test(i, model, testloader2, criterion, device, bestAcc, save_path)
-        metric(model, testloader2, num_classes=3, device=device)
-    torch.save(model.state_dict, os.path.join(save_path, 'model.pth'))
+        box_feat_matching(i, model, model2, testloader1, criterion, criterion2, optimizer, device1, device2)
+        # box_matching(i, model, model2, testloader1, criterion, criterion2, optimizer, device1, device2)
+        # activation_map_matching(i, model, s_loader, criterion, criterion2, optimizer, device1)
+        # train(i, model, testloader1, criterion, optimizer, device1)
+        bestAcc = test(i, model, testloader2, criterion, device1, bestAcc, save_path)
+        # metric(model, testloader2, num_classes=3, device=device1)
+    torch.save(model.state_dict(), os.path.join(save_path, 'model.pth'))
     print(bestAcc)
