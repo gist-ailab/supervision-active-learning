@@ -232,15 +232,119 @@ def box_feat_matching(epoch, model, model2, s_loader, criterion, criterion2, opt
     print("Loss 2 : ", running_loss2 / total)
     print("Loss 3 : ", running_loss3 / total)
 
-def point_regression(epoch, model, model2, s_loader, criterion, criterion2, optimizer, device, device2):
+def box_masking(epoch, model, model2, s_loader, criterion, criterion2, optimizer, device, device2):
     print('\nEpoch: %d'%epoch)
     model.train()
     model2.eval()
     running_loss1 = 0.0
     running_loss2 = 0.0
+    running_loss3 = 0.0
     running_acc = 0.0
     total = 0
-    
+    for _, (inputs, labels, masks, _) in enumerate(tqdm(s_loader)):
+        total += inputs.shape[0]
+        inputs, masks = inputs.to(device), masks.to(device)
+        labels = labels.to(device)
+        optimizer.zero_grad()
+
+        enc_mask = F.interpolate(masks, size=(7,7), mode='bilinear').squeeze() # b,7,7
+        outputs = model(inputs)
+        feat11, feat12, feat13, feat14 = outputs['l1'],outputs['l2'],outputs['l3'],outputs['l4']
+        # feat14 = outputs['l4']
+        outputs = outputs['fc']
+        _, pred = torch.max(outputs, 1)
+        running_acc += (pred == labels).sum().item()
+        loss1 = criterion(outputs, labels)
+        masked_imgs = []
+        for I, label, mask in zip(inputs, labels, masks):
+            bbox = gen_pseudo_box_by_CAM(I, mask.squeeze(0), model2, device2)
+            # print("I shape : ",I.shape)
+            masked_img = I.clone()
+            masked_img[:,bbox[0]:bbox[2],bbox[1]:bbox[3]] *= 0.1 
+            masked_img = masked_img.squeeze()
+            masked_imgs.append(masked_img)
+        masked_imgs = torch.stack(masked_imgs).to(device)
+        outputs2 = model(masked_imgs)
+        feat21, feat22, feat23, feat24 = outputs2['l1'],outputs2['l2'],outputs2['l3'],outputs2['l4']
+        # feat24 = outputs2['l4']
+        # outputs2 = outputs2['fc']
+
+        feat11 = F.normalize(feat11, p=2.0, dim=1) # b, 2048
+        feat12 = F.normalize(feat12, p=2.0, dim=1) # b, 2048
+        feat13 = F.normalize(feat13, p=2.0, dim=1) # b, 2048
+        feat14 = F.normalize(feat14, p=2.0, dim=1) # b, 2048
+
+        feat21 = F.normalize(feat21, p=2.0, dim=1) 
+        feat22 = F.normalize(feat22, p=2.0, dim=1) 
+        feat23 = F.normalize(feat23, p=2.0, dim=1) 
+        feat24 = F.normalize(feat24, p=2.0, dim=1) 
+
+        # loss2 = criterion(outputs2, labels)
+        
+        loss3 = 1-torch.mean(criterion2(feat11, feat21)) +\
+                1-torch.mean(criterion2(feat12, feat22)) +\
+                1-torch.mean(criterion2(feat13, feat23)) +\
+                1-torch.mean(criterion2(feat14, feat24))
+
+        # print(feat14.shape, feat24.shape)
+        # loss3 = 1-torch.mean(criterion2(feat14,feat24))
+
+        # loss = loss1 + loss2 + loss3
+        loss = loss1 + + loss3
+        loss.backward()
+        optimizer.step()
+        running_loss1 += loss1.item()
+        # running_loss2 += loss2.item()
+        running_loss3 += loss3.item()
+    total_acc = 100 * running_acc / total
+    print("Acc : ", total_acc)
+    print("Loss 1 : ", running_loss1 / total)
+    # print("Loss 2 : ", running_loss2 / total)
+    print("Loss 3 : ", running_loss3 / total)
+
+def point_regression(epoch, model, reg_head, s_loader, criterion, criterion2, optimizer, device):
+    print('\nEpoch: %d'%epoch)
+    model.train()
+    reg_head.train()
+    running_loss1 = 0.0
+    running_loss2 = 0.0
+    running_acc = 0.0
+    total = 0
+    for _, (inputs, labels, masks, _) in enumerate(tqdm(s_loader)):
+        total += inputs.shape[0]
+        inputs, masks = inputs.to(device), masks.to(device)
+        labels = labels.to(device)
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        feat = outputs['l4'] # b,2048,7,7
+        outputs = outputs['fc'] 
+        _, pred = torch.max(outputs, 1)
+        running_acc += (pred == labels).sum().item()
+        loss1 = criterion(outputs, labels)
+        
+        gt_points = []
+        for mask in masks:
+            mask = mask.squeeze(0)
+            m_point, _ = get_center_box(mask, mode='max')
+            m_point /= torch.tensor(mask.shape)
+            gt_points.append(m_point)
+        gt_points = torch.stack(gt_points)
+        gt_points = gt_points.to(device)
+        feat = reg_head(feat) # b,2,1,1
+        reg_outputs = torch.flatten(feat,1)
+        reg_outputs = reg_outputs.float()
+        gt_points = gt_points.float()
+        loss2 = criterion2(reg_outputs, gt_points)
+        
+        loss = loss1 + loss2
+        loss.backward()
+        optimizer.step()
+        running_loss1 += loss1.item()
+        running_loss2 += loss2.item()
+    total_acc = 100 * running_acc / total
+    print("Acc : ", total_acc)
+    print("Loss 1 : ", running_loss1 / total)
+    print("Loss 2 : ", running_loss2 / total)
 
 def test(epoch, model, loader, criterion, device, bestAcc, spath):
     print('\nEpoch: %d'%epoch)
@@ -421,11 +525,11 @@ def gen_cams(inputs, model, device, interpolate=False):
         weight = weight.unsqueeze(0).unsqueeze(0)
         cam = torch.bmm(weight, feat)
         cam = torch.reshape(cam, (1,7,7))
-        cam = cam - (torch.max(cam)+torch.min(cam))/2
-        cam = torch.sigmoid(cam)
         cam = cam.unsqueeze(1)
         if interpolate==True:
-            cam = F.interpolate(cam, size=(height, width), mode='bilinear')
+            cam = F.interpolate(cam, size=(height, width), mode='bicubic')
+        cam = cam-torch.min(cam)
+        cam = cam/torch.max(cam)
         cams += cam
     cams = torch.stack(cams)
     cams = cams.squeeze()
@@ -495,9 +599,9 @@ def gen_pseudo_box_by_CAM(inputs, mask, model, device):
     outputs = model(inputs.unsqueeze(0))
     outputs = outputs['fc']
     _, pred = torch.max(outputs, 1)
-    cams = gen_cams(inputs,model,device)
+    cams = gen_cams(inputs,model,interpolate=True,device=device)
     cam = cams[pred.item()]
-    cam = F.interpolate(cam.unsqueeze(0).unsqueeze(0), size=(224,224), mode='bilinear').squeeze()
+    # cam = F.interpolate(cam.unsqueeze(0).unsqueeze(0), size=(224,224), mode='bilinear').squeeze()
     m_point, m_box = get_center_box(mask, mode='max')
     c_points, c_boxes = get_center_box(cam, tr=0.5)
     points_pair = find_nearest_points(m_point.unsqueeze(0), torch.stack(c_points))

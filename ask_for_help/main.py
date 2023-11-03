@@ -51,7 +51,9 @@ else:
     save_path = os.path.join(args.spath, 'current')
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
-save_path = os.path.join(save_path, 'PointMatching')
+save_path = os.path.join(save_path, 'Eval_with_Val')
+if not os.path.isdir(save_path):
+    os.mkdir(save_path)
 save_path = os.path.join(save_path, args.note)
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
@@ -66,11 +68,14 @@ if args.dataset == 'ISIC2017':
     print('Num testset1 : ', len(testset1))
     testset2 = ISIC2017(args.dpath2, mode='test') # 270
     print('Num testset2 : ', len(testset2))
+    testset3 = ISIC2017(args.dpath2, mode='val') # 90
+    print('Num testset3 : ', len(testset3))
     
     trainloader = DataLoader(trainset, args.batch, shuffle=True, num_workers=4)
     valloader = DataLoader(validset, args.batch, shuffle=False, num_workers=4)
     testloader1 = DataLoader(testset1, args.batch, shuffle=True, num_workers=4)
     testloader2 = DataLoader(testset2, args.batch, shuffle=False, num_workers=4)
+    testloader3 = DataLoader(testset3, args.batch, shuffle=False, num_workers=4)
 
     model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
     model.fc = nn.Linear(2048, 3)
@@ -102,7 +107,7 @@ if args.mode=='base':
 
 if args.mode=='point':
     # model.load_state_dict(torch.load(os.path.join(save_path, '..', 'baseline','model.pth')))
-    model.load_state_dict(torch.load('/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/PointMatching/baseline/ACC_78.22.pth'))
+    model.load_state_dict(torch.load('/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/Eval_with_Val/HAM_baseline/model_61.48.pth'))
     
     model2 = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
     model2.fc = nn.Linear(2048, 3)
@@ -115,8 +120,10 @@ if args.mode=='point':
     }
     model2 = create_feature_extractor(model2, return_nodes=return_nodes)
     model2 = model2.to(device2)
-    model2.load_state_dict(torch.load('/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/PointMatching/baseline/ACC_78.22.pth'))
+    # model2.load_state_dict(torch.load('/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/PointMatching/baseline/ACC_78.22.pth'))
     
+    model2.load_state_dict(model.state_dict())
+
     for name, param in model2.named_parameters():
         param.requires_grad = False
 
@@ -144,12 +151,27 @@ if args.mode=='point':
     # test(-1, model, testloader2, criterion, device1, bestAcc, save_path)
     # metric(model, testloader2, num_classes=3, device=device1)
     bestAcc = 0.0
+    l = 0.9
     for i in range(0, args.epoch2):
-        box_feat_matching(i, model, model2, testloader1, criterion, criterion2, optimizer, device1, device2)
+        # box_feat_matching(i, model, model2, testloader1, criterion, criterion2, optimizer, device1, device2)
+        # box_masking(i, model, model2, testloader1, criterion, criterion2, optimizer, device1, device2)
         # box_matching(i, model, model2, testloader1, criterion, criterion2, optimizer, device1, device2)
         # activation_map_matching(i, model, s_loader, criterion, criterion2, optimizer, device1)
-        # train(i, model, testloader1, criterion, optimizer, device1)
-        bestAcc = test(i, model, testloader2, criterion, device1, bestAcc, save_path)
+        train(i, model, testloader1, criterion, optimizer, device1)
+        
+        # for param1, param2 in zip(model.parameters(), model2.parameters()):
+        #     new_para = l*param1.detach().cpu() + (1-l)*param2.detach().cpu()
+        #     new_para = new_para.to(device2)
+        #     param2.data.copy_(new_para.data)
+        #     param2.requires_grad = False
+        # model2.load_state_dict(model.state_dict())
+        # for name, param in model2.named_parameters():
+        #     param.requires_grad = False
+
+        bestAcc = test(i, model, testloader3, criterion, device1, bestAcc, save_path)
         # metric(model, testloader2, num_classes=3, device=device1)
-    torch.save(model.state_dict(), os.path.join(save_path, 'model.pth'))
+    model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
+    bestAcc = 100.0
+    test(-1, model, testloader2, criterion, device1, bestAcc, save_path)
+    # torch.save(model.state_dict(), os.path.join(save_path, 'model.pth'))
     print(bestAcc)
