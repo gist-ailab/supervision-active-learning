@@ -24,15 +24,16 @@ parser.add_argument('--epoch1', type=int, default=60)
 parser.add_argument('--epoch2', type=int, default=20)
 parser.add_argument('--dataset', type=str, default='ISIC2017')
 parser.add_argument('--query', type=str, default='')
-parser.add_argument('--batch', type=int, default=32)
-parser.add_argument('--lr', type=float, default=1e-3)
+parser.add_argument('--batch', type=int, default=28)
+parser.add_argument('--lr', type=float, default=1e-5)
+parser.add_argument('--lr2', type=float, default=1e-5)
 parser.add_argument('--beta1', type=float, default=0.9)
 parser.add_argument('--beta2', type=float, default=0.999)
 parser.add_argument('--seed', type=int, default=0)
 parser.add_argument('--gpu', type=str, default='7')
-parser.add_argument('--mode', type=str, default='base')
+parser.add_argument('--mode', type=str, default='point')
 parser.add_argument('--ratio', type=float, default=1.0)
-parser.add_argument('--note', type=str, default='baseline')
+parser.add_argument('--note', type=str, default='')
 args = parser.parse_args()
 
 if not args.seed==None:
@@ -90,7 +91,9 @@ else:
     }
     model = create_feature_extractor(model, return_nodes=return_nodes)
     model = model.to(device1)
-reg_head = nn.Conv2d(2048, 2, (7,7))
+# reg_head = nn.Conv2d(2048, 2, (7,7))
+reg_head = nn.Sequential(nn.Conv2d(2048, 512, (1,1)),
+                        nn.Conv2d(512, 2, (7,7)))
 reg_head = reg_head.to(device1)
 
 optimizer = optim.Adam(model.parameters(), args.lr)
@@ -118,9 +121,6 @@ if args.mode=='point':
     
     # s_subsetRandomSampler = SubsetRandomSampler(s_idx)
     # s_loader = DataLoader(testset1, batch_size=args.batch, shuffle=False, sampler=s_subsetRandomSampler)
-    
-    # for name, param in model.named_parameters():
-    #     param.requires_grad = False
             
     # for name, param in model.named_parameters():
     #     if 'layer4' in name:
@@ -129,14 +129,23 @@ if args.mode=='point':
     bestAcc = 100.0
     # test(-1, model, testloader2, criterion, device1, bestAcc, save_path)
     # metric(model, testloader2, num_classes=3, device=device1)
-    bestAcc = 0.0
-    l = 0.9
+    bestAcc = 999
+
+    # for name, param in model.named_parameters():
+    #     param.requires_grad = False
+    # optimizer2 = optim.Adam(reg_head.parameters(), 0.001)
+    # for i in range(10):
+    #     point_regression(-1, model, reg_head, testloader1, criterion, criterion2, optimizer, optimizer2, device1)
+    # for name, param in model.named_parameters():
+    #     param.requires_grad = True
+    optimizer2 = optim.Adam(reg_head.parameters(), args.lr2)
     for i in range(0, args.epoch2):
-        point_regression(i, model, reg_head, testloader1, criterion, criterion2, optimizer, device1)
-        bestAcc = test(i, model, testloader3, criterion, device1, bestAcc, save_path)
+        point_regression(i, model, reg_head, testloader1, criterion, criterion2, optimizer, optimizer2, device1)
+        bestAcc = regression_test(i, model, testloader3, criterion, criterion2, device1, bestAcc, save_path, reg_head)
+        # bestAcc = test(i, model, testloader3, criterion, device1, bestAcc, save_path, reg_head)
         # metric(model, testloader2, num_classes=3, device=device1)
     model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
-    bestAcc = 100.0
+    bestAcc = 0
     test(-1, model, testloader2, criterion, device1, bestAcc, save_path)
     # torch.save(model.state_dict(), os.path.join(save_path, 'model.pth'))
     print(bestAcc)

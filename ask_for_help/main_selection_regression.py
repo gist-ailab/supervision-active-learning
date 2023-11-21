@@ -97,6 +97,29 @@ for trial in range(TRIALS):
         model = model.to(device1)
     model.load_state_dict(torch.load('/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/Eval_with_Val/HAM_baseline/model_61.48.pth'))
 
+    reg_head1 = nn.Sequential(nn.Conv2d(256, 16, (1,1)),
+                        nn.Conv2d(16, 1, (1,1)))
+    reg_head2 = nn.Sequential(nn.Conv2d(512, 64, (1,1)),
+                            nn.Conv2d(64, 1, (1,1)))
+    reg_head3 = nn.Sequential(nn.Conv2d(1024, 128, (1,1)),
+                            nn.Conv2d(128, 1, (1,1)))
+    reg_head4 = nn.Sequential(nn.Conv2d(2048, 512, (1,1)),
+                            nn.Conv2d(512, 1, (1,1)))
+    reg_head5 = nn.Conv2d(4,1,(1,1))
+
+    reg_head1 = reg_head1.to(device1)
+    reg_head2 = reg_head2.to(device1)
+    reg_head3 = reg_head3.to(device1)
+    reg_head4 = reg_head4.to(device1)
+    reg_head5 = reg_head5.to(device1)
+    reg_head = [reg_head1,reg_head2,reg_head3,reg_head4, reg_head5]
+
+    reg_head_parameters = list(reg_head[0].parameters()) +\
+                          list(reg_head[1].parameters()) +\
+                          list(reg_head[2].parameters()) +\
+                          list(reg_head[3].parameters()) +\
+                          list(reg_head[4].parameters())
+
     indices = list(range(NUM_TRAIN))
     random.shuffle(indices)
 
@@ -125,23 +148,28 @@ for trial in range(TRIALS):
         torch.backends.cudnn.benchmark = True
         
         criterion = nn.CrossEntropyLoss()
+        criterion2 = nn.BCELoss()
+        criterion3 = nn.CosineSimilarity()
+
         optim_backbone = optim.Adam(Models['backbone'].parameters(), args.lr, betas=[args.beta1, args.beta2], eps=1e-8)
-        optimizers = {'backbone': optim_backbone}
+        optimizer2 = optim.Adam(reg_head_parameters, args.lr2)
+        optimizers = {'backbone': optim_backbone, 'reg_head': optimizer2}
 
         if method == 'lloss':
             optim_module = optim.SGD(Models['module'].parameters(), lr=LR, 
                                      momentum=MOMENTUM, weight_decay=WDECAY)
-            optimizers = {'backbone': optim_backbone, 'module': optim_module}
+            optimizers = {'backbone': optim_backbone, 'reg_head': optimizer2, 'module': optim_module}
         
         minLoss = 999
         for i in range(args.epoch2):
             train(i, Models, dataloaders['train'], criterion, optimizers, device1)
-            minLoss = test(i, Models, dataloaders['val'], criterion, device1, minLoss, save_path)
+            reg_feat_distil(i, Models, reg_head, dataloaders['train'], criterion, criterion2, criterion3, optimizers, None, device1)
+            minLoss = reg_distil_test(i, Models, dataloaders['val'], criterion, criterion2, criterion3, device1, MinLoss, save_path, reg_head)
         print('Min Loss : ', minLoss)
         model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
-        Models = {'backbone' : model}
+        Models = {'backbone' : model, 'reg_module' : reg_head}
         if method =='lloss':
-            Models = {'backbone': model, 'module': loss_module}
+            Models = {'backbone': model, 'reg_module' : reg_head, 'module': loss_module}
         test(-1, Models, dataloaders['test'], criterion, device1, minLoss, save_path)
         
         if cycle==CYCLES-1:
@@ -152,15 +180,9 @@ for trial in range(TRIALS):
         print(len(arg))
         print(arg[:5])
 
-        if INIT_TRAINSET:
-            addendum = (cycle+1) * ADDENDUM
-            print("ADDENDNUM : ", addendum)
-            labeled_set = list(torch.tensor(subset)[arg][-addendum:].numpy())
-            listd = list(torch.tensor(subset)[arg][:-addendum].numpy())
-        else:
-            labeled_set += list(torch.tensor(subset)[arg][-ADDENDUM:].numpy())
-            listd = list(torch.tensor(subset)[arg][:-ADDENDUM].numpy()) 
+        labeled_set += list(torch.tensor(subset)[arg][-ADDENDUM:].numpy())
+        listd = list(torch.tensor(subset)[arg][:-ADDENDUM].numpy()) 
         unlabeled_set = listd + unlabeled_set[SUBSET:]
         dataloaders['train'] = DataLoader(testset1, batch_size=BATCH, 
-                                        sampler=SubsetRandomSampler(labeled_set), 
-                                        pin_memory=True, num_workers=4)
+                                          sampler=SubsetRandomSampler(labeled_set), 
+                                          pin_memory=True, num_workers=4)
