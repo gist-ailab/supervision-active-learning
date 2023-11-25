@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 from skimage.io import imshow
 import skimage
 from tqdm import tqdm
-from pycocotools import mask as pymask
 import pickle
 from scipy import ndimage
 from torchvision.ops import masks_to_boxes
@@ -29,22 +28,12 @@ def train(epoch, model, loader, criterion, optimizer, device):
     running_loss = 0.0
     running_acc = 0.0
     total = 0
-    # max_entropy = 0
-    # min_entropy = 100
     for _, (inputs, labels, _, _) in enumerate(tqdm(loader)):
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
         outputs = model(inputs)
         if type(outputs)==dict:
             outputs = outputs['fc']
-        # entropy = torch.sum(-1 * torch.log(torch.softmax(outputs, dim=-1)) * torch.softmax(outputs, dim=-1), dim=-1)
-        # temp_min = torch.min(entropy)
-        # temp_max = torch.max(entropy)
-        
-        # if temp_max > max_entropy:
-        #     max_entropy = temp_max
-        # if temp_min < min_entropy:
-        #     min_entropy = temp_min
         
         _, pred = torch.max(outputs, 1)
         total += outputs.size(0)
@@ -54,9 +43,8 @@ def train(epoch, model, loader, criterion, optimizer, device):
         loss.backward()
         optimizer.step()
         running_loss += loss.item()
-        total_loss = running_loss / len(loader)
+    total_loss = running_loss / total
     total_acc = 100 * running_acc / total
-    # print(f'Max Entropy : {max_entropy}, Min Entropy : {min_entropy}')
     print(f'Train epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
 
 def activation_map_matching(epoch, model, s_loader, criterion, criterion2, optimizer, device):
@@ -416,7 +404,7 @@ def point_regression2(epoch, model, reg_head, s_loader, criterion, criterion2, o
     print("Loss 2 : ", running_loss2 / total)
     print("Total Loss : ", (running_loss1+running_loss2) / total)
 
-def point_regression3(epoch, model, reg_head, s_loader, criterion, criterion2, optimizer, optimizer2, device):
+def point_regression3(epoch, model, reg_head, s_loader, criterion, criterion2, optimizer, device):
     print('\nEpoch: %d'%epoch)
     model.train()
     for head in reg_head:
@@ -425,13 +413,14 @@ def point_regression3(epoch, model, reg_head, s_loader, criterion, criterion2, o
     running_loss2 = 0.0
     running_acc = 0.0
     total = 0
+    class_dict = {0:0, 1:0, 2:0}
     baseMap = torch.zeros([7,7])
     for _, (inputs, labels, masks, _) in enumerate(tqdm(s_loader)):
         total += inputs.shape[0]
         inputs, masks = inputs.to(device), masks.to(device)
         labels = labels.to(device)
         optimizer.zero_grad()
-        optimizer2.zero_grad()
+        # optimizer2.zero_grad()
         outputs = model(inputs)
         f1 = outputs['l1'] # b,256,56,56
         f2 = outputs['l2'] # b,512,28,28
@@ -441,6 +430,9 @@ def point_regression3(epoch, model, reg_head, s_loader, criterion, criterion2, o
         _, pred = torch.max(outputs, 1)
         running_acc += (pred == labels).sum().item()
         loss1 = criterion(outputs, labels)
+
+        for label in labels:
+            class_dict[label.item()] += 1
         
         gt_points = []
         for mask in masks:
@@ -456,12 +448,16 @@ def point_regression3(epoch, model, reg_head, s_loader, criterion, criterion2, o
         gt_points = gt_points.to(device)
 
         f1 = reg_head[0](f1) # b,1,56,56
-        f1 = F.adaptive_avg_pool2d(f1, (7,7)) # b,1,7,7
+        # f1 = torch.mean(f1, 1)
+        f1 = F.adaptive_avg_pool2d(f1, (7,7))
         f2 = reg_head[1](f2) # b,1,28,28
-        f2 = F.adaptive_avg_pool2d(f2, (7,7)) # b,1,7,7
+        # f2 = torch.mean(f2, 1)
+        f2 = F.adaptive_avg_pool2d(f2, (7,7))
         f3 = reg_head[2](f3) # b,1,14,14
-        f3 = F.adaptive_avg_pool2d(f3, (7,7)) # b,1,7,7
+        # f3 = torch.mean(f3, 1)
+        f3 = F.adaptive_avg_pool2d(f3, (7,7))
         f4 = reg_head[3](f4) # b,1,7,7
+        # f4 = torch.mean(f4, 1)
         # f = reg_head[4](torch.stack([f1,f2,f3,f4], 1).squeeze()) # b,1,7,7
         f = torch.mean(torch.stack([f1,f2,f3,f4], 1).squeeze(), dim=1)
         # print(f.shape)
@@ -471,7 +467,7 @@ def point_regression3(epoch, model, reg_head, s_loader, criterion, criterion2, o
         reg_outputs = torch.softmax(reg_outputs, -1)
         reg_outputs = reg_outputs.float()
         gt_points = gt_points.float()
-        loss2 = 10*criterion2(reg_outputs, gt_points)
+        loss2 = 20*criterion2(reg_outputs, gt_points)
         
         if epoch==-1:
             loss = loss2
@@ -479,7 +475,7 @@ def point_regression3(epoch, model, reg_head, s_loader, criterion, criterion2, o
             loss = loss1 + loss2
         loss.backward()
         optimizer.step()
-        optimizer2.step()
+        # optimizer2.step()
         running_loss1 += loss1.item()
         running_loss2 += loss2.item()
     total_acc = 100 * running_acc / total
@@ -487,6 +483,7 @@ def point_regression3(epoch, model, reg_head, s_loader, criterion, criterion2, o
     print("Loss 1 : ", running_loss1 / total)
     print("Loss 2 : ", running_loss2 / total)
     print("Total Loss : ", (running_loss1+running_loss2) / total)
+    print("Class Dict : ", class_dict[0], class_dict[1], class_dict[2])
 
 def point_regression4(epoch, model, reg_head, s_loader, criterion, criterion2, optimizer, optimizer2, device):
     print('\nEpoch: %d'%epoch)
@@ -573,6 +570,14 @@ def point_regression4(epoch, model, reg_head, s_loader, criterion, criterion2, o
 
 def reg_feat_distil(epoch, model, reg_head, s_loader, criterion, criterion2, criterion3, optimizer, optimizer2, device):
     print('\nEpoch: %d'%epoch)
+    if type(model)==dict and reg_head==None:
+        model_dict = model
+        model = model_dict['backbone']
+        reg_head = model_dict['reg_module']
+    if type(optimizer)==dict and optimizer2==None:
+        opti_dict = optimizer
+        optimizer2 = opti_dict['reg_head']
+        optimizer = opti_dict['backbone']
     model.train()
     for head in reg_head:
         head.train()
@@ -623,10 +628,19 @@ def reg_feat_distil(epoch, model, reg_head, s_loader, criterion, criterion2, cri
         reg_f4 = reg_head[3](f4) # b,1,7,7
         mean_f4 = torch.mean(f4, dim=1)
         f4 = F.adaptive_avg_pool2d(reg_f4, (7,7)) # b,1,7,7
-        f = torch.mean(torch.stack([f1,f2,f3,f4], 1).squeeze(), dim=1)
+        f = torch.stack([f1,f2,f3,f4], 1).squeeze()
+        if len(f.shape) < 4:
+            f = f.unsqueeze(0)
+        f = torch.mean(f, dim=1)
         # print(f.shape)
 
-        reg_outputs = f.squeeze() # b, 7, 7
+        if f.shape[0] == 1:
+            reg_outputs = f.squeeze() # 7, 7
+            reg_outputs = reg_outputs.unsqueeze(0) # 1, 7, 7
+        else:
+            reg_outputs = f.squeeze() # b, 7, 7
+        if len(reg_outputs.shape)==2:
+            reg_outputs = reg_outputs.unsqueeze(0)
         reg_outputs = reg_outputs.view([reg_outputs.shape[0], -1]) # b, 49
         reg_outputs = torch.softmax(reg_outputs, -1)
         reg_outputs = reg_outputs.float()
@@ -647,7 +661,7 @@ def reg_feat_distil(epoch, model, reg_head, s_loader, criterion, criterion2, cri
         dist2 = (1-torch.mean(criterion3(mean_f2, reg_f2)))/2
         dist3 = (1-torch.mean(criterion3(mean_f3, reg_f3)))/2
         dist4 = (1-torch.mean(criterion3(mean_f4, reg_f4)))/2
-        loss3 = 50*(dist1+dist2+dist3+dist4)/4
+        loss3 = 10*(dist1+dist2+dist3+dist4)/4
 
         loss = loss1 + loss2 + loss3
 
@@ -845,8 +859,13 @@ def test(epoch, model, loader, criterion, device, minLoss, spath, reg_head=None)
             torch.save(model.state_dict(), os.path.join(spath, f'ACC_{total_acc:.2f}.pth'))
             torch.save(model.state_dict(), os.path.join(spath, 'model.pth'))
             if reg_head is not None:
-                torch.save(reg_head.state_dict(), os.path.join(spath, f'reg_{total_acc:.2f}.pth'))
-                torch.save(reg_head.state_dict(), os.path.join(spath, 'reg_head.pth'))
+                reg_head_state_dict = dict()
+                reg_head_state_dict['l1'] = reg_head[0].state_dict()
+                reg_head_state_dict['l2'] = reg_head[1].state_dict()
+                reg_head_state_dict['l3'] = reg_head[2].state_dict()
+                reg_head_state_dict['l4'] = reg_head[3].state_dict()
+                torch.save(reg_head_state_dict, os.path.join(spath, f'reg_{total_acc:.2f}.pth'))
+                torch.save(reg_head_state_dict, os.path.join(spath, 'reg_head.pth'))
             return total_loss
         else:
             return minLoss
@@ -1008,21 +1027,26 @@ def regression_test3(epoch, model, loader, criterion, criterion2, device, minLos
             gt_points = gt_points.to(device)
 
             f1 = reg_head[0](f1) # b,1,56,56
+            # f1 = torch.mean(f1, 1)
             f1 = F.adaptive_avg_pool2d(f1, (7,7))
             f2 = reg_head[1](f2) # b,1,28,28
+            # f2 = torch.mean(f2, 1)
             f2 = F.adaptive_avg_pool2d(f2, (7,7))
             f3 = reg_head[2](f3) # b,1,14,14
+            # f3 = torch.mean(f3, 1)
             f3 = F.adaptive_avg_pool2d(f3, (7,7))
             f4 = reg_head[3](f4) # b,1,7,7
+            # f4 = torch.mean(f4, 1)
             # f = reg_head[4](torch.stack([f1,f2,f3,f4], 1).squeeze()) # b,1,7,7
             f = torch.mean(torch.stack([f1,f2,f3,f4], 1).squeeze(), dim=1)
 
             reg_outputs = f.squeeze() # b, 7, 7
             reg_outputs = reg_outputs.view([reg_outputs.shape[0], -1]) # b, 49
             reg_outputs = torch.softmax(reg_outputs, -1)
+            # reg_outputs = torch.sigmoid(reg_outputs)
             reg_outputs = reg_outputs.float()
             gt_points = gt_points.float()
-            loss2 = 10*criterion2(reg_outputs, gt_points)
+            loss2 = 20*criterion2(reg_outputs, gt_points)
 
             loss = loss1 + loss2
             running_loss1 += loss1.item()
@@ -1051,6 +1075,10 @@ def regression_test3(epoch, model, loader, criterion, criterion2, device, minLos
 
 def reg_distil_test(epoch, model, loader, criterion, criterion2, criterion3, device, minLoss, spath, reg_head=None):
     print('\nEpoch: %d'%epoch)
+    if type(model)==dict:
+        model_dict = model
+        model = model_dict['backbone']
+        reg_head = model_dict['reg_module']
     model.eval()
     for head in reg_head:
         head.eval()
@@ -1101,9 +1129,14 @@ def reg_distil_test(epoch, model, loader, criterion, criterion2, criterion3, dev
             reg_f4 = reg_head[3](f4) # b,1,7,7
             mean_f4 = torch.mean(f4, dim=1)
             f4 = F.adaptive_avg_pool2d(reg_f4, (7,7)) # b,1,7,7
-            f = torch.mean(torch.stack([f1,f2,f3,f4], 1).squeeze(), dim=1)
+            f = torch.stack([f1,f2,f3,f4], 1).squeeze()
+            if len(f.shape) < 4:
+                f = f.unsqueeze(0)
+            f = torch.mean(f, dim=1)
 
             reg_outputs = f.squeeze() # b, 7, 7
+            if len(reg_outputs) == 2:
+                reg_outputs = reg_outputs.unsqueeze(0)
             reg_outputs = reg_outputs.view([reg_outputs.shape[0], -1]) # b, 49
             reg_outputs = torch.softmax(reg_outputs, -1)
             reg_outputs = reg_outputs.float()
@@ -1124,7 +1157,7 @@ def reg_distil_test(epoch, model, loader, criterion, criterion2, criterion3, dev
             dist2 = (1-torch.mean(criterion3(mean_f2, reg_f2)))/2
             dist3 = (1-torch.mean(criterion3(mean_f3, reg_f3)))/2
             dist4 = (1-torch.mean(criterion3(mean_f4, reg_f4)))/2
-            loss3 = 50*(dist1+dist2+dist3+dist4)/4
+            loss3 = 10*(dist1+dist2+dist3+dist4)/4
 
             loss = loss1 + loss2 + loss3
 

@@ -21,8 +21,9 @@ from selection_methods import query_samples
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dpath1', type=str, default='/ailab_mat/dataset/HAM10000/balanced')
-parser.add_argument('--dpath2', type=str, default='/ailab_mat/dataset/ISIC_skin_disease/balanced_train')
-parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000')
+parser.add_argument('--dpath2', type=str, default='/home/yunjae_heo/datas/isic2017/balanced_train')
+parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/Selction')
+parser.add_argument('--pretrained', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/Eval_with_Val_origin_val_test/ham10000_origin/model.pth')
 parser.add_argument('--epoch1', type=int, default=60)
 parser.add_argument('--epoch2', type=int, default=10)
 parser.add_argument('--dataset', type=str, default='ISIC2017')
@@ -82,6 +83,9 @@ assert method in methods, 'No method %s! Try options %s'%(method, methods)
 
 for trial in range(TRIALS):
     model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+    model.fc = nn.Linear(2048, 7)
+    pretrained = torch.load(args.pretrained)
+    model.load_state_dict(pretrained)
     model.fc = nn.Linear(2048, 3)
     if args.mode == 'base':
         model = model.to(device1)
@@ -95,7 +99,7 @@ for trial in range(TRIALS):
         }
         model = create_feature_extractor(model, return_nodes=return_nodes)
         model = model.to(device1)
-    model.load_state_dict(torch.load('/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/Eval_with_Val/HAM_baseline/model_61.48.pth'))
+    # model.load_state_dict(torch.load('/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/Eval_with_Val/HAM_baseline/model_61.48.pth'))
 
     indices = list(range(NUM_TRAIN))
     random.shuffle(indices)
@@ -115,15 +119,31 @@ for trial in range(TRIALS):
         print(f"Trial : {trial}, Cycle : {cycle}")
         subset = unlabeled_set[:]
         SUBSET = len(subset)
+        
+        if INIT_PARA:
+            model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+            model.fc = nn.Linear(2048, 7)
+            pretrained = torch.load(args.pretrained)
+            model.load_state_dict(pretrained)
+            model.fc = nn.Linear(2048, 3)
+            return_nodes = {
+            'layer1':'l1',
+            'layer2':'l2',
+            'layer3':'l3',
+            'layer4':'l4',
+            'fc':'fc'
+            }
+            model = create_feature_extractor(model, return_nodes=return_nodes)
+            # model.load_state_dict(torch.load('/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/Eval_with_Val/HAM_baseline/model_61.48.pth'))
+            model = model.to(device1)
+        torch.backends.cudnn.benchmark = True
+        
         Models = {'backbone' : model}
         if method =='lloss':
             loss_module = LossNet().to(device1)
             Models = {'backbone': model, 'module': loss_module}
-        
-        if INIT_PARA:
-            Models['backbone'].load_state_dict(torch.load('/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/Eval_with_Val/HAM_baseline/model_61.48.pth'))
-        torch.backends.cudnn.benchmark = True
-        
+            Models['backbone'] = Models['backbone'].to(device1)
+
         criterion = nn.CrossEntropyLoss()
         optim_backbone = optim.Adam(Models['backbone'].parameters(), args.lr, betas=[args.beta1, args.beta2], eps=1e-8)
         optimizers = {'backbone': optim_backbone}
@@ -138,25 +158,25 @@ for trial in range(TRIALS):
             train(i, Models, dataloaders['train'], criterion, optimizers, device1)
             minLoss = test(i, Models, dataloaders['val'], criterion, device1, minLoss, save_path)
         print('Min Loss : ', minLoss)
-        model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
-        Models = {'backbone' : model}
-        if method =='lloss':
-            Models = {'backbone': model, 'module': loss_module}
-        test(-1, Models, dataloaders['test'], criterion, device1, minLoss, save_path)
+        Models['backbone'].load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
+        # Models = {'backbone' : model}
+        # if method =='lloss':
+        #     Models = {'backbone': model, 'module': loss_module}
+        # test(-1, Models, dataloaders['test'], criterion, device1, minLoss, save_path)
+        metric(Models['backbone'], dataloaders['test'], num_classes=3, device=device1)
         
         if cycle==CYCLES-1:
             print(f'Trial {trial} Finished')
             break
 
         arg = query_samples(Models, method, data_unlabeled, subset, labeled_set, cycle, args)
-        print(len(arg))
-        print(arg[:5])
+        print("Unlabeled Set : ", len(unlabeled_set))
 
         if INIT_TRAINSET:
-            addendum = (cycle+1) * ADDENDUM
-            print("ADDENDNUM : ", addendum)
+            addendum = ADDENDUM * ADD_CONST
             labeled_set = list(torch.tensor(subset)[arg][-addendum:].numpy())
-            listd = list(torch.tensor(subset)[arg][:-addendum].numpy())
+            listd = list(torch.tensor(subset)[arg][:-ADDENDUM].numpy())
+            print("Labeled Set No. : ", len(labeled_set))
         else:
             labeled_set += list(torch.tensor(subset)[arg][-ADDENDUM:].numpy())
             listd = list(torch.tensor(subset)[arg][:-ADDENDUM].numpy()) 

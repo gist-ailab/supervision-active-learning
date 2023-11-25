@@ -17,9 +17,10 @@ from datasets import *
 from utils import *
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dpath1', type=str, default='/ailab_mat/dataset/HAM10000/balanced')
-parser.add_argument('--dpath2', type=str, default='/ailab_mat/dataset/ISIC_skin_disease/balanced_train')
-parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000')
+parser.add_argument('--dpath1', type=str, default='/ailab_mat/dataset/HAM10000/')
+parser.add_argument('--dpath2', type=str, default='/home/yunjae_heo/datas/isic2017/balanced_train')
+parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000')
+parser.add_argument('--pretrained', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/Eval_with_Val_origin_val_test/ham10000_origin/model.pth')
 parser.add_argument('--epoch1', type=int, default=60)
 parser.add_argument('--epoch2', type=int, default=10)
 parser.add_argument('--dataset', type=str, default='ISIC2017')
@@ -30,7 +31,7 @@ parser.add_argument('--beta1', type=float, default=0.9)
 parser.add_argument('--beta2', type=float, default=0.999)
 parser.add_argument('--seed', type=int, default=0)
 parser.add_argument('--gpu', type=str, default='6')
-parser.add_argument('--mode', type=str, default='point')
+parser.add_argument('--mode', type=str, default='base')
 parser.add_argument('--ratio', type=float, default=1.0)
 parser.add_argument('--note', type=str, default='baseline')
 args = parser.parse_args()
@@ -51,7 +52,7 @@ else:
     save_path = os.path.join(args.spath, 'current')
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
-save_path = os.path.join(save_path, 'Eval_with_Val_origin_val_test')
+save_path = os.path.join(save_path, 'Eval_with_Val')
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
 save_path = os.path.join(save_path, args.note)
@@ -60,15 +61,15 @@ if not os.path.isdir(save_path):
 
 #------------------------------------------------------------
 if args.dataset == 'ISIC2017':
-    trainset = HAM10000(args.dpath1, mode='train') # 3000
+    trainset = HAM10000_origin(args.dpath1, mode='train') # 10015
     print('Num trainset : ', len(trainset))
-    validset = HAM10000(args.dpath1, mode='test') # 450
+    validset = HAM10000_origin(args.dpath1, mode='test') # 1511
     print('Num validset : ', len(validset))
     testset1 = ISIC2017(args.dpath2, mode='train') # 750
     print('Num testset1 : ', len(testset1))
-    testset2 = ISIC2017(args.dpath2, mode='test') # 270
+    testset2 = ISIC2017(args.dpath2, mode='test') # 600
     print('Num testset2 : ', len(testset2))
-    testset3 = ISIC2017(args.dpath2, mode='val') # 90
+    testset3 = ISIC2017(args.dpath2, mode='val') # 150
     print('Num testset3 : ', len(testset3))
     
     trainloader = DataLoader(trainset, args.batch, shuffle=True, num_workers=4)
@@ -77,7 +78,42 @@ if args.dataset == 'ISIC2017':
     testloader2 = DataLoader(testset2, args.batch, shuffle=False, num_workers=4)
     testloader3 = DataLoader(testset3, args.batch, shuffle=False, num_workers=4)
 
+
+if args.mode=='base':
     model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+    model.fc = nn.Linear(2048, 7)
+    if args.mode == 'base':
+        model = model.to(device1)
+    else:
+        return_nodes = {
+            'layer1':'l1',
+            'layer2':'l2',
+            'layer3':'l3',
+            'layer4':'l4',
+            'fc':'fc'
+        }
+        model = create_feature_extractor(model, return_nodes=return_nodes)
+        model = model.to(device1)
+    optimizer = optim.Adam(model.parameters(), args.lr)
+    criterion = nn.CrossEntropyLoss()
+
+    minLoss = 100.0
+    for i in range(args.epoch1):
+        train(i, model, trainloader, criterion, optimizer, device1)
+        minLoss = test(i, model, valloader, criterion, device1, minLoss, save_path)
+    # print(minLoss)
+    model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
+    test(-1, model, valloader, criterion, device1, minLoss, save_path)
+    # test(-1, model, testloader2, criterion, device1, bestAcc, save_path)
+    metric(model, testloader2, num_classes=7, device=device1)
+
+if args.mode=='point':
+    # model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+    model = models.resnet50(weights=None)
+    if not args.pretrained=='None':
+        model.fc = nn.Linear(2048, 7)
+        pretrained = torch.load(args.pretrained)
+        model.load_state_dict(pretrained)
     model.fc = nn.Linear(2048, 3)
     if args.mode == 'base':
         model = model.to(device1)
@@ -91,87 +127,14 @@ if args.dataset == 'ISIC2017':
         }
         model = create_feature_extractor(model, return_nodes=return_nodes)
         model = model.to(device1)
-optimizer = optim.Adam(model.parameters(), args.lr)
-criterion = nn.CrossEntropyLoss()
-
-
-if args.mode=='base':
-    bestAcc = 0.0
-    for i in range(args.epoch1):
-        train(i, model, trainloader, criterion, optimizer, device1)
-        bestAcc = test(i, model, valloader, criterion, device1, bestAcc, save_path)
-    print(bestAcc)
-    model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
-    test(-1, model, testloader2, criterion, device1, bestAcc, save_path)
-    # metric(model, testloader1, num_classes=3, device=device1)
-
-if args.mode=='point':
-    # model.load_state_dict(torch.load(os.path.join(save_path, '..', 'baseline','model.pth')))
-    model.load_state_dict(torch.load('/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/Eval_with_Val/HAM_baseline/model_61.48.pth'))
-    
-    # model2 = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
-    # model2.fc = nn.Linear(2048, 3)
-    # return_nodes = {
-    #     'layer1':'l1',
-    #     'layer2':'l2',
-    #     'layer3':'l3',
-    #     'layer4':'l4',
-    #     'fc':'fc'
-    # }
-    # model2 = create_feature_extractor(model2, return_nodes=return_nodes)
-    # model2 = model2.to(device2)
-    # model2.load_state_dict(torch.load('/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/PointMatching/baseline/ACC_78.22.pth'))
-    
-    # model2.load_state_dict(model.state_dict())
-
-    # for name, param in model2.named_parameters():
-    #     param.requires_grad = False
-
-    optimizer = optim.Adam(model.parameters(), args.lr, betas=[args.beta1, args.beta2], eps=1e-8)
+    optimizer = optim.Adam(model.parameters(), args.lr)
     criterion = nn.CrossEntropyLoss()
-    # criterion2 = nn.L1Loss()
-    # criterion2 = nn.MSELoss()
-    # criterion2 = nn.BCELoss()
-    criterion2 = nn.CosineSimilarity()
-    # criterion2 = nn.CrossEntropyLoss()
-    # selection_loader = DataLoader(testset1, batch_size=1, shuffle=False)
-    # s_idx, entropy_list = data_selection(model, selection_loader, criterion, device1, ratio=args.ratio, mode='low_entropy')
     
-    # s_subsetRandomSampler = SubsetRandomSampler(s_idx)
-    # s_loader = DataLoader(testset1, batch_size=args.batch, shuffle=False, sampler=s_subsetRandomSampler)
-    
-    # for name, param in model.named_parameters():
-    #     param.requires_grad = False
-            
-    # for name, param in model.named_parameters():
-    #     if 'layer4' in name:
-    #         param.requires_grad = True
-    
-    bestAcc = 100.0
-    # test(-1, model, testloader2, criterion, device1, bestAcc, save_path)
-    # metric(model, testloader2, num_classes=3, device=device1)
-    # bestAcc = 0
-    # l = 0.9
+    minLoss = 999
     for i in range(0, args.epoch2):
-        # box_feat_matching(i, model, model2, testloader1, criterion, criterion2, optimizer, device1, device2)
-        # box_masking(i, model, model2, testloader1, criterion, criterion2, optimizer, device1, device2)
-        # box_matching(i, model, model2, testloader1, criterion, criterion2, optimizer, device1, device2)
-        # activation_map_matching(i, model, s_loader, criterion, criterion2, optimizer, device1)
         train(i, model, testloader1, criterion, optimizer, device1)
-        
-        # for param1, param2 in zip(model.parameters(), model2.parameters()):
-        #     new_para = l*param1.detach().cpu() + (1-l)*param2.detach().cpu()
-        #     new_para = new_para.to(device2)
-        #     param2.data.copy_(new_para.data)
-        #     param2.requires_grad = False
-        # model2.load_state_dict(model.state_dict())
-        # for name, param in model2.named_parameters():
-        #     param.requires_grad = False
-
-        bestAcc = test(i, model, testloader3, criterion, device1, bestAcc, save_path)
+        minLoss = test(i, model, testloader3, criterion, device1, minLoss, save_path)
         # metric(model, testloader2, num_classes=3, device=device1)
     model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
-    # bestAcc = 999
-    test(-1, model, testloader2, criterion, device1, bestAcc, save_path)
-    # torch.save(model.state_dict(), os.path.join(save_path, 'model.pth'))
-    print(bestAcc)
+    metric(model, testloader2, num_classes=3, device=device1)
+    # test(-1, model, testloader2, criterion, device1, bestAcc, save_path)

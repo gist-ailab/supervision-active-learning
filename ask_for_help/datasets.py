@@ -108,6 +108,43 @@ class HAM10000(Dataset):
         img_transform.append(normalize)
         return transforms.Compose(img_transform)
 
+class HAM10000_origin(Dataset):
+    def __init__(self, path, mode):
+        super(HAM10000_origin, self).__init__()
+        assert mode=='train' or mode=='test'
+        self.path = path
+        self.mode = mode
+        # self.classes = {'akiec':0, 'bcc':1, 'bkl':2, 'df':3, 'mel':4, 'nv':5, 'vasc':6}
+        self.classes = {'nv':2, 'mel':1, 'bkl':0, 'akiec':3, 'bcc':4, 'df':5, 'vasc':6}
+        # self.classes = {'nv':2, 'mel':1, 'bkl':0}
+        self.img_list = []
+        for cls_name in os.listdir(os.path.join(self.path, self.mode)):
+            self.img_list += glob(os.path.join(os.path.join(self.path, self.mode), cls_name, '*'))
+        self.t = self.transform()
+        
+    def __len__(self):
+        return len(self.img_list)
+    
+    def __getitem__(self, idx):
+        img_path = self.img_list[idx]
+        img = Image.open(img_path).convert('RGB')
+        img = self.t(img)
+        label = self.classes[img_path.split('/')[-2]]
+        return img, label, torch.tensor([0]), idx
+    
+    def transform(self):
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
+        img_transform = []
+        img_transform.append(transforms.Resize((224,224)))
+        if self.mode=='train':
+            img_transform.append(transforms.RandomHorizontalFlip())
+            img_transform.append(transforms.RandomRotation(15))
+            # img_transform.append(transforms.ColorJitter(brightness=0.3, contrast=0.3))
+        # img_transform.append(transforms.RandomInvert(p=1.0))
+        img_transform.append(transforms.ToTensor())
+        img_transform.append(normalize)
+        return transforms.Compose(img_transform)
+
 class ilsvrc30(Dataset):
     def __init__(self, path, mode):
         super(ilsvrc30, self).__init__()
@@ -218,7 +255,14 @@ class ilsvrc30(Dataset):
                 transforms.ToTensor()
                 ])
         return img_transform, mask_transform
-    
+
+class CUB200(Dataset):
+    def __init__(self, path, mode):
+        super(CUB200, self).__init__()
+        self.path = path
+        self.mode = mode
+
+
 class BDD100K(Dataset):
     def __init__(self, path, mode):
         super(BDD100K, self).__init__()

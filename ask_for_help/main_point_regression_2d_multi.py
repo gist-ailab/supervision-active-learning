@@ -65,15 +65,20 @@ if args.dataset == 'ISIC2017':
     validset = HAM10000(args.dpath1, mode='test') # 450
     print('Num validset : ', len(validset))
     testset1 = ISIC2017(args.dpath2, mode='train') # 750
+    testset1_idx = [i for i in range(750)]
+    random.shuffle(testset1_idx)
+    selected = testset1_idx[:int(len(testset1_idx)*args.ratio)]
+    testSubset1 = Subset(testset1, selected)
     print('Num testset1 : ', len(testset1))
-    testset2 = ISIC2017(args.dpath2, mode='test') # 270
+    print('Num Selected : ', len(testSubset1))
+    testset2 = ISIC2017(args.dpath2, mode='test') # 600
     print('Num testset2 : ', len(testset2))
-    testset3 = ISIC2017(args.dpath2, mode='val') # 90
+    testset3 = ISIC2017(args.dpath2, mode='val') # 150
     print('Num testset3 : ', len(testset3))
     
     trainloader = DataLoader(trainset, args.batch, shuffle=True, num_workers=4)
     valloader = DataLoader(validset, args.batch, shuffle=False, num_workers=4)
-    testloader1 = DataLoader(testset1, args.batch, shuffle=True, num_workers=4)
+    testloader1 = DataLoader(testSubset1, args.batch, shuffle=True, num_workers=4)
     testloader2 = DataLoader(testset2, args.batch, shuffle=False, num_workers=4)
     testloader3 = DataLoader(testset3, args.batch, shuffle=False, num_workers=4)
 
@@ -92,14 +97,10 @@ else:
     model = create_feature_extractor(model, return_nodes=return_nodes)
     model = model.to(device1)
 # reg_head = nn.Conv2d(2048, 1, (1,1))
-reg_head1 = nn.Sequential(nn.Conv2d(256, 16, (1,1)),
-                        nn.Conv2d(16, 1, (1,1)))
-reg_head2 = nn.Sequential(nn.Conv2d(512, 64, (1,1)),
-                        nn.Conv2d(64, 1, (1,1)))
-reg_head3 = nn.Sequential(nn.Conv2d(1024, 128, (1,1)),
-                        nn.Conv2d(128, 1, (1,1)))
-reg_head4 = nn.Sequential(nn.Conv2d(2048, 512, (1,1)),
-                        nn.Conv2d(512, 1, (1,1)))
+reg_head1 = nn.Conv2d(256, 1, (1,1))
+reg_head2 = nn.Conv2d(512, 1, (1,1))
+reg_head3 = nn.Conv2d(1024, 1, (1,1))
+reg_head4 = nn.Conv2d(2048, 1, (1,1))
 
 reg_head1 = reg_head1.to(device1)
 reg_head2 = reg_head2.to(device1)
@@ -126,6 +127,7 @@ if args.mode=='point':
     
     optimizer = optim.Adam(model.parameters(), args.lr, betas=[args.beta1, args.beta2], eps=1e-8)
     criterion = nn.CrossEntropyLoss()
+    # criterion2 = nn.CrossEntropyLoss()
     criterion2 = nn.BCELoss()
     # selection_loader = DataLoader(testset1, batch_size=1, shuffle=False)
     # s_idx, entropy_list = data_selection(model, selection_loader, criterion, device1, ratio=args.ratio, mode='low_entropy')
@@ -157,9 +159,9 @@ if args.mode=='point':
                           list(reg_head[3].parameters())
     optimizer2 = optim.Adam(reg_head_parameters, args.lr2)
     for i in range(0, args.epoch2):
-        point_regression3(i, model, reg_head, testloader1, criterion, criterion2, optimizer, optimizer2, device1)
+        point_regression3(i, model, reg_head, testloader1, criterion, criterion2, optimizer, device1)
         MaxAcc = regression_test3(i, model, testloader3, criterion, criterion2, device1, MaxAcc, save_path, reg_head)
-        # MinLoss = test(i, model, testloader3, criterion, device1, MinLoss, save_path, reg_head)
+        # MaxAcc = test(i, model, testloader3, criterion, device1, MaxAcc, save_path, reg_head)
         # metric(model, testloader2, num_classes=3, device=device1)
     model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
     # MinLoss = 0
