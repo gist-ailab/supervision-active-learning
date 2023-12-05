@@ -96,12 +96,12 @@ class ISIC2017_2(Dataset):
         img = self.imgt(img)
         mask = self.maskt(mask)
         label = self.classes[label]
-        # p1 = random.random()
-        # p2 = random.random()
-        # if p1 > 0.5 and self.mode=='train':
-        #     img, mask = F2.hflip(img), F2.hflip(mask)
-        # if p2 > 0.5 and self.mode=='train':
-        #     img, mask = F2.vflip(img), F2.vflip(mask)
+        p1 = random.random()
+        p2 = random.random()
+        if p1 > 0.5 and self.mode=='train':
+            img, mask = F2.hflip(img), F2.hflip(mask)
+        if p2 > 0.5 and self.mode=='train':
+            img, mask = F2.vflip(img), F2.vflip(mask)
         return img, label, mask, idx
     
     def init_transforms(self):
