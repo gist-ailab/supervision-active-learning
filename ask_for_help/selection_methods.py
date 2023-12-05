@@ -5,6 +5,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import torch.optim as optim
 # Custom
+import torch.nn.functional as F
 from config import *
 from models.query_models import VAE, Discriminator, GCN
 from data.sampler import SubsetSequentialSampler
@@ -220,18 +221,65 @@ def get_Entropy(models, unlabeled_loader):
             with torch.cuda.device(0):
                 inputs = inputs.cuda()
             outputs = models['backbone'](inputs)['fc']
-            _, pred = torch.max(outputs, 1)
-            entropy = criterion(outputs, pred)
+            _, preds = torch.max(outputs, 1)
+            entropy = criterion(outputs, preds)
             Entropy = torch.cat((Entropy, entropy), 0)
 
     return Entropy.cpu()
 
+def get_Feat_Entropy(models, unlabeled_loader):
+    models['backbone'].eval()
+    with torch.cuda.device(0):
+        Entropy = torch.tensor([]).cuda()
+
+    # criterion = nn.BCELoss(reduction='none')
+    criterion = nn.CrossEntropyLoss(reduction='none')
+
+    with torch.no_grad():
+        for inputs, _, _, _ in unlabeled_loader:
+            with torch.cuda.device(0):
+                inputs = inputs.cuda()
+            outputs = models['backbone'](inputs)
+            f1 = outputs['l1'] # b,256,56,56
+            f2 = outputs['l2'] # b,512,28,28
+            f3 = outputs['l3'] # b,1024,14,14
+            f4 = outputs['l4'] # b,2048,7,7
+
+            f1 = torch.mean(f1, 1)
+            f1 = F.adaptive_avg_pool2d(f1, (7,7))
+            f2 = torch.mean(f2, 1)
+            f2 = F.adaptive_avg_pool2d(f2, (7,7))
+            f3 = torch.mean(f3, 1)
+            f3 = F.adaptive_avg_pool2d(f3, (7,7))
+            f4 = torch.mean(f4, 1)
+            f = torch.stack([f1,f2,f3,f4], 1).squeeze()
+            if len(f.shape) < 4:
+                f = f.unsqueeze(0)
+            f = torch.mean(f, dim=1)
+            reg_outputs = f.squeeze() # b, 7, 7
+            if len(reg_outputs.shape) == 2:
+                reg_outputs = reg_outputs.unsqueeze(0)
+            reg_outputs = reg_outputs.view([reg_outputs.shape[0], -1]) # b, 49
+            reg_outputs = torch.softmax(reg_outputs, -1)
+            max_indices = torch.argmax(reg_outputs, dim=1)
+            with torch.cuda.device(0):
+                pseudo_gt = torch.zeros_like(reg_outputs)
+                pseudo_gt[torch.arange(reg_outputs.size(0)), max_indices] = 1.
+            entropy = criterion(reg_outputs, pseudo_gt)
+            # entropy = torch.mean(entropy, 1)
+            Entropy = torch.cat((Entropy, entropy), 0)
+
+    return Entropy.cpu()
 
 # Select the indices of the unlablled data according to the methods
 def query_samples(model, method, data_unlabeled, subset, labeled_set, cycle, args):
     SUBSET = len(subset)
     if method == 'Random':
-        arg = np.random.randint(SUBSET, size=SUBSET)
+        # arg = np.random.randint(SUBSET, size=SUBSET)
+        arg = [i for i in range(SUBSET)]
+        np.random.shuffle(arg)
+        # np.random.shuffle(subset)
+        # arg = np.array(subset)
 
     if (method == 'UncertainGCN') or (method == 'CoreGCN'):
         # Create unlabeled dataloader for the unlabeled subset
@@ -372,5 +420,13 @@ def query_samples(model, method, data_unlabeled, subset, labeled_set, cycle, arg
                                     pin_memory=True, num_workers=4)
         entropys = get_Entropy(model, unlabeled_loader)
         arg = np.argsort(entropys)
+
+    if method == 'FeatEntropy':
+        unlabeled_loader = DataLoader(data_unlabeled, batch_size=BATCH, 
+                                    sampler=SubsetSequentialSampler(subset), # more convenient if we maintain the order of subset
+                                    pin_memory=True, num_workers=4)
+        entropys = get_Feat_Entropy(model, unlabeled_loader)
+        arg = np.argsort(entropys)
+        # print(arg)
 
     return arg

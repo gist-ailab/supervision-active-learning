@@ -72,6 +72,104 @@ class ISIC2017(Dataset):
         
         return transforms.Compose(img_transform), transforms.Compose(mask_transform)
 
+class ISIC2017_2(Dataset):
+    def __init__(self, path, mode):
+        super(ISIC2017_2, self).__init__()
+        self.path = path
+        self.mode = mode
+        self.classes = {'nv':1, 'mel':0, 'bkl':1}
+        self.img_list = glob(os.path.join(self.path, self.mode, 'nv','*'))\
+            + glob(os.path.join(self.path, self.mode, 'mel','*'))\
+            + glob(os.path.join(self.path, self.mode, 'bkl','*'))
+        self.imgt, self.maskt = self.init_transforms()
+            
+    def __len__(self):
+        return len(self.img_list)
+    
+    def __getitem__(self, idx):
+        img_path = self.img_list[idx]
+        img_name = img_path.split('/')[-1].split('.')[0]
+        img = Image.open(img_path).convert('RGB')
+        label = img_path.split('/')[-2]
+        mask = Image.open(os.path.join(self.path, f'mask_{self.mode}', label, img_name +'_segmentation.png'))
+        # print(label)
+        img = self.imgt(img)
+        mask = self.maskt(mask)
+        label = self.classes[label]
+        # p1 = random.random()
+        # p2 = random.random()
+        # if p1 > 0.5 and self.mode=='train':
+        #     img, mask = F2.hflip(img), F2.hflip(mask)
+        # if p2 > 0.5 and self.mode=='train':
+        #     img, mask = F2.vflip(img), F2.vflip(mask)
+        return img, label, mask, idx
+    
+    def init_transforms(self):
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
+
+        img_transform = []
+        mask_transform = []
+        
+        img_transform.append(transforms.Resize((256,256)))
+        img_transform.append(transforms.CenterCrop((224,224)))
+        img_transform.append(transforms.ToTensor())
+        img_transform.append(normalize)
+        
+        mask_transform.append(transforms.Resize((256,256)))
+        mask_transform.append(transforms.CenterCrop((224,224)))
+        mask_transform.append(transforms.ToTensor())
+        
+        return transforms.Compose(img_transform), transforms.Compose(mask_transform)
+
+class ISIC2017_3(Dataset):
+    def __init__(self, path, mode):
+        super(ISIC2017_3, self).__init__()
+        self.path = path
+        self.mode = mode
+        self.classes = {'nv':1, 'mel':1, 'bkl':0}
+        self.img_list = glob(os.path.join(self.path, self.mode, 'nv','*'))\
+            + glob(os.path.join(self.path, self.mode, 'mel','*'))\
+            + glob(os.path.join(self.path, self.mode, 'bkl','*'))
+        self.imgt, self.maskt = self.init_transforms()
+            
+    def __len__(self):
+        return len(self.img_list)
+    
+    def __getitem__(self, idx):
+        img_path = self.img_list[idx]
+        img_name = img_path.split('/')[-1].split('.')[0]
+        img = Image.open(img_path).convert('RGB')
+        label = img_path.split('/')[-2]
+        mask = Image.open(os.path.join(self.path, f'mask_{self.mode}', label, img_name +'_segmentation.png'))
+        # print(label)
+        img = self.imgt(img)
+        mask = self.maskt(mask)
+        label = self.classes[label]
+        # p1 = random.random()
+        # p2 = random.random()
+        # if p1 > 0.5 and self.mode=='train':
+        #     img, mask = F2.hflip(img), F2.hflip(mask)
+        # if p2 > 0.5 and self.mode=='train':
+        #     img, mask = F2.vflip(img), F2.vflip(mask)
+        return img, label, mask, idx
+    
+    def init_transforms(self):
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
+
+        img_transform = []
+        mask_transform = []
+        
+        img_transform.append(transforms.Resize((256,256)))
+        img_transform.append(transforms.CenterCrop((224,224)))
+        img_transform.append(transforms.ToTensor())
+        img_transform.append(normalize)
+        
+        mask_transform.append(transforms.Resize((256,256)))
+        mask_transform.append(transforms.CenterCrop((224,224)))
+        mask_transform.append(transforms.ToTensor())
+        
+        return transforms.Compose(img_transform), transforms.Compose(mask_transform)
+
 class HAM10000(Dataset):
     def __init__(self, path, mode):
         super(HAM10000, self).__init__()
@@ -95,6 +193,13 @@ class HAM10000(Dataset):
         img = self.t(img)
         label = self.classes[img_path.split('/')[-2]]
         return img, label, torch.tensor([0]), idx
+    
+    def get_labels(self):
+        labels = []
+        for img_path in self.img_list:
+            label = self.classes[img_path.split('/')[-2]]
+            labels.append(label)
+        return labels
     
     def transform(self):
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
@@ -131,6 +236,13 @@ class HAM10000_origin(Dataset):
         img = self.t(img)
         label = self.classes[img_path.split('/')[-2]]
         return img, label, torch.tensor([0]), idx
+
+    def get_labels(self):
+        labels = []
+        for img_path in self.img_list:
+            label = self.classes[img_path.split('/')[-2]]
+            labels.append(label)
+        return labels
     
     def transform(self):
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
@@ -257,11 +369,61 @@ class ilsvrc30(Dataset):
         return img_transform, mask_transform
 
 class CUB200(Dataset):
-    def __init__(self, path, mode):
+    def __init__(self, path, mode, num_train=20):
         super(CUB200, self).__init__()
         self.path = path
         self.mode = mode
+        self.img_path = os.path.join(path, mode)
+        self.mask_path = os.path.join(path, mode+'_mask')
+        self.img_list = []
+        for cls_dir in os.listdir(self.img_path):
+            label = int(cls_dir.split('.')[0])-1
+            img_list = os.listdir(os.path.join(self.img_path, cls_dir))
+            if self.mode=='train':
+                random.shuffle(img_list)
+                img_list = img_list[:num_train]
+            for img_name in img_list:
+                self.img_list.append((os.path.join(cls_dir, img_name), label))
+        self.imgt, self.maskt = self.init_transforms()
 
+    def __len__(self):
+        return len(self.img_list)
+
+    def __getitem__(self, idx):
+        img_path = self.img_list[idx][0]
+        label = self.img_list[idx][1]
+        img = Image.open(os.path.join(self.img_path, img_path)).convert('RGB')
+        mask = Image.open(os.path.join(self.mask_path, img_path)).convert("L")
+        # print("MAX : ", np.max(mask))
+        img = self.imgt(img)
+        mask = self.maskt(mask)
+        p1 = random.random()
+        if p1 > 0.5 and self.mode=='train':
+            img, mask = F2.hflip(img), F2.hflip(mask)
+
+        return img, label, mask, idx
+
+    def init_transforms(self):
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
+
+        img_transform = []
+        mask_transform = []
+        
+        img_transform.append(transforms.Resize((512,512)))
+        if self.mode=='train':
+            img_transform.append(transforms.CenterCrop((448,448)))
+            img_transform.append(transforms.ColorJitter(brightness=0.3, contrast=0.3))
+        else:
+            img_transform.append(transforms.CenterCrop((448,448)))
+        img_transform.append(transforms.ToTensor())
+        img_transform.append(normalize)
+        
+        mask_transform.append(transforms.Resize((512,512)))
+        mask_transform.append(transforms.CenterCrop((448,448)))
+        mask_transform.append(transforms.ToTensor())
+        
+        return transforms.Compose(img_transform), transforms.Compose(mask_transform)
+        
 
 class BDD100K(Dataset):
     def __init__(self, path, mode):

@@ -404,17 +404,16 @@ def point_regression2(epoch, model, reg_head, s_loader, criterion, criterion2, o
     print("Loss 2 : ", running_loss2 / total)
     print("Total Loss : ", (running_loss1+running_loss2) / total)
 
-def point_regression3(epoch, model, reg_head, s_loader, criterion, criterion2, optimizer, device):
+def point_regression3(epoch, model, s_loader, criterion, criterion2, optimizer, device, feat_size=(7,7)):
     print('\nEpoch: %d'%epoch)
     model.train()
-    for head in reg_head:
-        head.train()
     running_loss1 = 0.0
     running_loss2 = 0.0
     running_acc = 0.0
     total = 0
-    class_dict = {0:0, 1:0, 2:0}
-    baseMap = torch.zeros([7,7])
+    fh, fw = feat_size
+    # class_dict = {0:0, 1:0, 2:0}
+    baseMap = torch.zeros([fh,fw])
     for _, (inputs, labels, masks, _) in enumerate(tqdm(s_loader)):
         total += inputs.shape[0]
         inputs, masks = inputs.to(device), masks.to(device)
@@ -426,48 +425,64 @@ def point_regression3(epoch, model, reg_head, s_loader, criterion, criterion2, o
         f2 = outputs['l2'] # b,512,28,28
         f3 = outputs['l3'] # b,1024,14,14
         f4 = outputs['l4'] # b,2048,7,7
+        # fh, fw = f4.shape[-2:]
         outputs = outputs['fc'] 
         _, pred = torch.max(outputs, 1)
         running_acc += (pred == labels).sum().item()
         loss1 = criterion(outputs, labels)
 
-        for label in labels:
-            class_dict[label.item()] += 1
+        # for label in labels:
+        #     class_dict[label.item()] += 1
         
         gt_points = []
+        # print(fh, fw)
         for mask in masks:
             mask = mask.squeeze(0)
+            mask[mask>0]=1.
+            # print(torch.max(mask))
+            # print(torch.min(mask))
             m_point, _ = get_center_box(mask, mode='max')
+            # print(m_point)
             m_point /= torch.tensor(mask.shape) # range : 0 ~ 1
             pointMap = baseMap.clone()
-            x, y = int(7*m_point[0]), int(7*m_point[1]) # 7,7
+            x, y = int(fh*m_point[0]), int(fw*m_point[1]) # 7,7
+            # x, y = random.randint(0,fh-1), random.randint(0,fw-1)
             pointMap[y, x] = 1
             gt_points.append(pointMap)
         gt_points = torch.stack(gt_points) # b, 7, 7
         gt_points = gt_points.view([gt_points.shape[0], -1]) # b, 49
         gt_points = gt_points.to(device)
 
-        f1 = reg_head[0](f1) # b,1,56,56
-        # f1 = torch.mean(f1, 1)
-        f1 = F.adaptive_avg_pool2d(f1, (7,7))
-        f2 = reg_head[1](f2) # b,1,28,28
-        # f2 = torch.mean(f2, 1)
-        f2 = F.adaptive_avg_pool2d(f2, (7,7))
-        f3 = reg_head[2](f3) # b,1,14,14
-        # f3 = torch.mean(f3, 1)
-        f3 = F.adaptive_avg_pool2d(f3, (7,7))
-        f4 = reg_head[3](f4) # b,1,7,7
-        # f4 = torch.mean(f4, 1)
+        # f1 = reg_head[0](f1) # b,1,56,56
+        f1 = torch.mean(f1, 1)
+        f1 = F.adaptive_avg_pool2d(f1, (fh,fw))
+        # f2 = reg_head[1](f2) # b,1,28,28
+        f2 = torch.mean(f2, 1)
+        f2 = F.adaptive_avg_pool2d(f2, (fh,fw))
+        # f3 = reg_head[2](f3) # b,1,14,14
+        f3 = torch.mean(f3, 1)
+        f3 = F.adaptive_avg_pool2d(f3, (fh,fw))
+        # f4 = reg_head[3](f4) # b,1,7,7
+        f4 = torch.mean(f4, 1)
+        f4 = F.adaptive_avg_pool2d(f4, (fh,fw))
         # f = reg_head[4](torch.stack([f1,f2,f3,f4], 1).squeeze()) # b,1,7,7
-        f = torch.mean(torch.stack([f1,f2,f3,f4], 1).squeeze(), dim=1)
+        f = torch.stack([f1,f2,f3,f4], 1).squeeze()
+        if len(f.shape) < 4:
+            f = f.unsqueeze(0)
+        f = torch.mean(f, dim=1)
         # print(f.shape)
 
         reg_outputs = f.squeeze() # b, 7, 7
+        # print('1. ', reg_outputs.shape)
+        if len(reg_outputs.shape) == 2:
+            reg_outputs = reg_outputs.unsqueeze(0)
+        # print('2. ',reg_outputs.shape)
         reg_outputs = reg_outputs.view([reg_outputs.shape[0], -1]) # b, 49
+        # print('3. ',reg_outputs.shape)
         reg_outputs = torch.softmax(reg_outputs, -1)
         reg_outputs = reg_outputs.float()
         gt_points = gt_points.float()
-        loss2 = 20*criterion2(reg_outputs, gt_points)
+        loss2 = 10*criterion2(reg_outputs, gt_points)
         
         if epoch==-1:
             loss = loss2
@@ -479,11 +494,12 @@ def point_regression3(epoch, model, reg_head, s_loader, criterion, criterion2, o
         running_loss1 += loss1.item()
         running_loss2 += loss2.item()
     total_acc = 100 * running_acc / total
+    print("Total : ", total)
     print("Acc : ", total_acc)
     print("Loss 1 : ", running_loss1 / total)
     print("Loss 2 : ", running_loss2 / total)
     print("Total Loss : ", (running_loss1+running_loss2) / total)
-    print("Class Dict : ", class_dict[0], class_dict[1], class_dict[2])
+    # print("Class Dict : ", class_dict[0], class_dict[1], class_dict[2])
 
 def point_regression4(epoch, model, reg_head, s_loader, criterion, criterion2, optimizer, optimizer2, device):
     print('\nEpoch: %d'%epoch)
@@ -987,16 +1003,15 @@ def regression_test2(epoch, model, loader, criterion, criterion2, device, minLos
         else:
             return minLoss
 
-def regression_test3(epoch, model, loader, criterion, criterion2, device, minLoss, spath, reg_head=None):
+def regression_test3(epoch, model, loader, criterion, criterion2, device, minLoss, spath, feat_size=(7,7)):
     print('\nEpoch: %d'%epoch)
     model.eval()
-    for head in reg_head:
-        head.eval()
     running_loss1 = 0.0
     running_loss2 = 0.0
     running_acc = 0.0
     total = 0
-    baseMap = torch.zeros([7,7])
+    fh, fw = feat_size
+    baseMap = torch.zeros([fh,fw])
     with torch.no_grad():
         for _, (inputs, labels, masks, index) in enumerate(tqdm(loader)):
             inputs, labels = inputs.to(device), labels.to(device)
@@ -1016,37 +1031,45 @@ def regression_test3(epoch, model, loader, criterion, criterion2, device, minLos
             gt_points = []
             for mask in masks:
                 mask = mask.squeeze(0)
+                mask[mask>0]=1.
                 m_point, _ = get_center_box(mask, mode='max')
                 m_point /= torch.tensor(mask.shape) # range : 0 ~ 1
                 pointMap = baseMap.clone()
-                x, y = int(7*m_point[0]), int(7*m_point[1]) # 7,7
+                x, y = int(fh*m_point[0]), int(fw*m_point[1]) # 7,7
+                # x, y = random.randint(0,fh-1), random.randint(0,fw-1)
                 pointMap[y, x] = 1
                 gt_points.append(pointMap)
             gt_points = torch.stack(gt_points) # b, 7, 7
             gt_points = gt_points.view([gt_points.shape[0], -1]) # b, 49
             gt_points = gt_points.to(device)
 
-            f1 = reg_head[0](f1) # b,1,56,56
-            # f1 = torch.mean(f1, 1)
-            f1 = F.adaptive_avg_pool2d(f1, (7,7))
-            f2 = reg_head[1](f2) # b,1,28,28
-            # f2 = torch.mean(f2, 1)
-            f2 = F.adaptive_avg_pool2d(f2, (7,7))
-            f3 = reg_head[2](f3) # b,1,14,14
-            # f3 = torch.mean(f3, 1)
-            f3 = F.adaptive_avg_pool2d(f3, (7,7))
-            f4 = reg_head[3](f4) # b,1,7,7
-            # f4 = torch.mean(f4, 1)
+            # f1 = reg_head[0](f1) # b,1,56,56
+            f1 = torch.mean(f1, 1)
+            f1 = F.adaptive_avg_pool2d(f1, (fh,fw))
+            # f2 = reg_head[1](f2) # b,1,28,28
+            f2 = torch.mean(f2, 1)
+            f2 = F.adaptive_avg_pool2d(f2, (fh,fw))
+            # f3 = reg_head[2](f3) # b,1,14,14
+            f3 = torch.mean(f3, 1)
+            f3 = F.adaptive_avg_pool2d(f3, (fh,fw))
+            # f4 = reg_head[3](f4) # b,1,7,7
+            f4 = torch.mean(f4, 1)
+            f4 = F.adaptive_avg_pool2d(f4, (fh,fw))
             # f = reg_head[4](torch.stack([f1,f2,f3,f4], 1).squeeze()) # b,1,7,7
-            f = torch.mean(torch.stack([f1,f2,f3,f4], 1).squeeze(), dim=1)
+            f = torch.stack([f1,f2,f3,f4], 1).squeeze()
+            if len(f.shape) < 4:
+                f = f.unsqueeze(0)
+            f = torch.mean(f, dim=1)
 
             reg_outputs = f.squeeze() # b, 7, 7
+            if len(reg_outputs.shape) == 2:
+                reg_outputs = reg_outputs.unsqueeze(0)
             reg_outputs = reg_outputs.view([reg_outputs.shape[0], -1]) # b, 49
             reg_outputs = torch.softmax(reg_outputs, -1)
             # reg_outputs = torch.sigmoid(reg_outputs)
             reg_outputs = reg_outputs.float()
             gt_points = gt_points.float()
-            loss2 = 20*criterion2(reg_outputs, gt_points)
+            loss2 =10*criterion2(reg_outputs, gt_points)
 
             loss = loss1 + loss2
             running_loss1 += loss1.item()
@@ -1061,14 +1084,6 @@ def regression_test3(epoch, model, loader, criterion, criterion2, device, minLos
         if total_loss < minLoss:
             torch.save(model.state_dict(), os.path.join(spath, f'ACC_{total_acc:.2f}.pth'))
             torch.save(model.state_dict(), os.path.join(spath, 'model.pth'))
-            if reg_head is not None:
-                reg_head_state_dict = dict()
-                reg_head_state_dict['l1'] = reg_head[0].state_dict()
-                reg_head_state_dict['l2'] = reg_head[1].state_dict()
-                reg_head_state_dict['l3'] = reg_head[2].state_dict()
-                reg_head_state_dict['l4'] = reg_head[3].state_dict()
-                torch.save(reg_head_state_dict, os.path.join(spath, f'reg_{total_acc:.2f}.pth'))
-                torch.save(reg_head_state_dict, os.path.join(spath, 'reg_head.pth'))
             return total_loss
         else:
             return minLoss
@@ -1135,7 +1150,7 @@ def reg_distil_test(epoch, model, loader, criterion, criterion2, criterion3, dev
             f = torch.mean(f, dim=1)
 
             reg_outputs = f.squeeze() # b, 7, 7
-            if len(reg_outputs) == 2:
+            if len(reg_outputs.shape) == 2:
                 reg_outputs = reg_outputs.unsqueeze(0)
             reg_outputs = reg_outputs.view([reg_outputs.shape[0], -1]) # b, 49
             reg_outputs = torch.softmax(reg_outputs, -1)
@@ -1462,9 +1477,9 @@ def metric(model, loader, num_classes, device):
         TP = confusion_matrix[i][i]
         FP = torch.sum(confusion_matrix[:,i]) - TP
         FN = torch.sum(confusion_matrix[i]) - TP
-        class_AP[i] = (100*TP / (TP + FP)).item()
-        class_AR[i] = (100*TP / (TP + FN)).item()
-        class_ARoverAP[i] = ((TP + FN) / (TP + FP)).item()
+        class_AP[i] = (100*TP / (TP + FP + 1e-6)).item()
+        class_AR[i] = (100*TP / (TP + FN + 1e-6)).item()
+        # class_ARoverAP[i] = ((TP + FN) / (TP + FP+1e-6)).item()
     print(confusion_matrix)
     # print(f'Class AP/AR: {class_ARoverAP},\n mAP/mAR : {torch.sum(torch.stack(list(class_ARoverAP.values())))/num_classes}')
     mAP = sum(class_AP.values())/num_classes+1e-6
@@ -1710,44 +1725,24 @@ def val_detector(epoch, model, loader, device, bestAcc, spath):
         return sum(val_loss_list)/total
 
 def masking_input(inputs, masks, base_heatmap, device, mode='point'):
-    if mode=='point':
-        masked_inputs = []
-        for img,mask in zip(inputs,masks):
-            mask_np = mask.numpy()
-            center = ndimage.center_of_mass(mask_np)
-            center = center[1:]
-            # print(center)
-            # print(torch.tensor(center, dtype=int).shape)
-            heatmap = torch.clone(base_heatmap)
-            heatmap = (heatmap - torch.tensor(center, dtype=int))/112
-            heatmap = heatmap*heatmap
-            heatmap = torch.sum(heatmap, dim=-1)
-            heatmap = -1*heatmap/(1.5)**2
-            heatmap = torch.exp(heatmap)
-            heatmap = heatmap*heatmap
-            heatmap = heatmap.to(device)
-            masked_inputs.append(img*heatmap)
-        masked_inputs = torch.stack(masked_inputs)
-        
-    elif mode=='box':
-        boxes = masks_to_boxes(masks)
-        cropped_imgs = []
-        for img, box in zip(inputs, boxes):
-            cropped_img = F2.crop(img, box[1],box[0],box[3]-box[1],box[2]-box[0])
-            background = torch.zeros_like(img)
-            background[:,box[1]:box[3],box[0]:box[2]] = cropped_img
-            cropped_imgs.append(background)
-        masked_inputs = torch.stack(cropped_imgs)
-        
-    elif mode=='mask':
-        masks = masks.to(device)
-        masks[masks==0] = 0.0
-        # print(inputs.shape)
-        # print(masks.shape)
-        masked_inputs = inputs * masks
-        # print(masked_inputs.shape)
-
-    return masked_inputs
+    masked_inputs = []
+    for img,mask in zip(inputs,masks):
+        mask_np = mask.numpy()
+        center = ndimage.center_of_mass(mask_np)
+        center = center[1:]
+        # print(center)
+        # print(torch.tensor(center, dtype=int).shape)
+        heatmap = torch.clone(base_heatmap)
+        heatmap = (heatmap - torch.tensor(center, dtype=int))/112
+        heatmap = heatmap*heatmap
+        heatmap = torch.sum(heatmap, dim=-1)
+        heatmap = -1*heatmap/(1.5)**2
+        heatmap = torch.exp(heatmap)
+        heatmap = heatmap*heatmap
+        heatmap = heatmap.to(device)
+        masked_inputs.append(img*heatmap)
+    masked_inputs = torch.stack(masked_inputs)
+    return masked_input
 
 def data_selection(model, loader, criterion, device, ratio=0.1, preselected=[], mode='random'):
     selected = []

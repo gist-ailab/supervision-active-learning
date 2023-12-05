@@ -22,7 +22,7 @@ from selection_methods import query_samples
 parser = argparse.ArgumentParser()
 parser.add_argument('--dpath1', type=str, default='/ailab_mat/dataset/HAM10000/balanced')
 parser.add_argument('--dpath2', type=str, default='/home/yunjae_heo/datas/isic2017/balanced_train')
-parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/Selction')
+parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000/')
 parser.add_argument('--pretrained', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/Eval_with_Val_origin_val_test/ham10000_origin/model.pth')
 parser.add_argument('--epoch1', type=int, default=60)
 parser.add_argument('--epoch2', type=int, default=10)
@@ -58,9 +58,9 @@ if not os.path.isdir(args.spath):
 save_path = os.path.join(args.spath, f'seed{SEED}')
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
-# save_path = os.path.join(save_path, 'Eval_with_Val')
-# if not os.path.isdir(save_path):
-#     os.mkdir(save_path)
+save_path = os.path.join(save_path, 'melanoma_classification')
+if not os.path.isdir(save_path):
+    os.mkdir(save_path)
 save_path = os.path.join(save_path, args.note)
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
@@ -70,23 +70,24 @@ if args.dataset == 'ISIC2017':
     # print('Num trainset : ', len(trainset))
     # validset = HAM10000(args.dpath1, mode='test') # 450
     # print('Num validset : ', len(validset))
-    testset1 = ISIC2017(args.dpath2, mode='train') # 750
+    testset1 = ISIC2017_2(args.dpath2, mode='train') # 750
     print('Num testset1 : ', len(testset1))
-    testset2 = ISIC2017(args.dpath2, mode='test') # 270
+    testset2 = ISIC2017_2(args.dpath2, mode='test') # 270
     print('Num testset2 : ', len(testset2))
-    testset3 = ISIC2017(args.dpath2, mode='val') # 90
+    testset3 = ISIC2017_2(args.dpath2, mode='val') # 90
     print('Num testset3 : ', len(testset3))
 
 method = args.method_type
-methods = ['Random', 'UncertainGCN', 'CoreGCN', 'CoreSet', 'lloss','VAAL', 'HighEntropy', 'LowEntropy']
+methods = ['Random', 'UncertainGCN', 'CoreGCN', 'CoreSet', 'lloss','VAAL', 'HighEntropy', 'LowEntropy', 'FeatEntropy']
 assert method in methods, 'No method %s! Try options %s'%(method, methods)
 
 for trial in range(TRIALS):
-    model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
-    model.fc = nn.Linear(2048, 7)
-    pretrained = torch.load(args.pretrained)
-    model.load_state_dict(pretrained)
-    model.fc = nn.Linear(2048, 3)
+    model = models.resnet50(weights=None)
+    if not args.pretrained=='None':
+        model.fc = nn.Linear(2048, 7)
+        pretrained = torch.load(args.pretrained)
+        model.load_state_dict(pretrained)
+    model.fc = nn.Linear(2048, 2)
     if args.mode == 'base':
         model = model.to(device1)
     else:
@@ -99,7 +100,6 @@ for trial in range(TRIALS):
         }
         model = create_feature_extractor(model, return_nodes=return_nodes)
         model = model.to(device1)
-    # model.load_state_dict(torch.load('/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/Eval_with_Val/HAM_baseline/model_61.48.pth'))
 
     indices = list(range(NUM_TRAIN))
     random.shuffle(indices)
@@ -107,7 +107,7 @@ for trial in range(TRIALS):
     labeled_set = indices[:ADDENDUM]
     unlabeled_set = [x for x in indices if x not in labeled_set]
 
-    data_unlabeled = ISIC2017(args.dpath2, mode='train')
+    data_unlabeled = ISIC2017_2(args.dpath2, mode='train')
     train_loader = DataLoader(testset1, batch_size=BATCH, 
                               sampler=SubsetRandomSampler(labeled_set), 
                               pin_memory=True, drop_last=True, num_workers=4)
@@ -121,11 +121,12 @@ for trial in range(TRIALS):
         SUBSET = len(subset)
         
         if INIT_PARA:
-            model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
-            model.fc = nn.Linear(2048, 7)
-            pretrained = torch.load(args.pretrained)
-            model.load_state_dict(pretrained)
-            model.fc = nn.Linear(2048, 3)
+            model = models.resnet50(weights=None)
+            if not args.pretrained=='None':
+                model.fc = nn.Linear(2048, 7)
+                pretrained = torch.load(args.pretrained)
+                model.load_state_dict(pretrained)
+            model.fc = nn.Linear(2048, 2)
             return_nodes = {
             'layer1':'l1',
             'layer2':'l2',
@@ -134,7 +135,6 @@ for trial in range(TRIALS):
             'fc':'fc'
             }
             model = create_feature_extractor(model, return_nodes=return_nodes)
-            # model.load_state_dict(torch.load('/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/balanced_HAM10000/seed0/Eval_with_Val/HAM_baseline/model_61.48.pth'))
             model = model.to(device1)
         torch.backends.cudnn.benchmark = True
         
@@ -155,15 +155,11 @@ for trial in range(TRIALS):
         
         minLoss = 999
         for i in range(args.epoch2):
-            train(i, Models, dataloaders['train'], criterion, optimizers, device1)
-            minLoss = test(i, Models, dataloaders['val'], criterion, device1, minLoss, save_path)
+            train(i, Models['backbone'], dataloaders['train'], criterion, optim_backbone, device1)
+            minLoss = test(i, Models['backbone'], dataloaders['val'], criterion, device1, minLoss, save_path)
         print('Min Loss : ', minLoss)
         Models['backbone'].load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
-        # Models = {'backbone' : model}
-        # if method =='lloss':
-        #     Models = {'backbone': model, 'module': loss_module}
-        # test(-1, Models, dataloaders['test'], criterion, device1, minLoss, save_path)
-        metric(Models['backbone'], dataloaders['test'], num_classes=3, device=device1)
+        metric(Models['backbone'], dataloaders['test'], num_classes=2, device=device1)
         
         if cycle==CYCLES-1:
             print(f'Trial {trial} Finished')
