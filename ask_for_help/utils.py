@@ -126,7 +126,10 @@ def point_regression3(epoch, model, s_loader, criterion, criterion2, optimizer, 
         # print('2. ',reg_outputs.shape)
         reg_outputs = reg_outputs.view([reg_outputs.shape[0], -1]) # b, 49
         # print('3. ',reg_outputs.shape)
+
+        # reg_outputs = torch.sigmoid(reg_outputs)
         reg_outputs = torch.softmax(reg_outputs, -1)
+
         reg_outputs = reg_outputs.float()
         gt_points = gt_points.float()
         
@@ -264,8 +267,10 @@ def regression_test3(epoch, model, loader, criterion, criterion2, device, minLos
             if len(reg_outputs.shape) == 2:
                 reg_outputs = reg_outputs.unsqueeze(0)
             reg_outputs = reg_outputs.view([reg_outputs.shape[0], -1]) # b, 49
-            reg_outputs = torch.softmax(reg_outputs, -1)
+            
             # reg_outputs = torch.sigmoid(reg_outputs)
+            reg_outputs = torch.softmax(reg_outputs, -1)
+
             reg_outputs = reg_outputs.float()
             gt_points = gt_points.float()
             
