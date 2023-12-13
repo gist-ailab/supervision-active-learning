@@ -47,112 +47,6 @@ def train(epoch, model, loader, criterion, optimizer, device):
     total_acc = 100 * running_acc / total
     print(f'Train epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
 
-def point_regression3(epoch, model, s_loader, criterion, criterion2, optimizer, device, feat_size=(7,7)):
-    print('\nEpoch: %d'%epoch)
-    model.train()
-    running_loss1 = 0.0
-    running_loss2 = 0.0
-    running_acc = 0.0
-    total = 0
-    fh, fw = feat_size
-    # class_dict = {0:0, 1:0, 2:0}
-    baseMap = torch.zeros([fh,fw])
-    baseHMap = torch.zeros([fh,fw,2])
-    for x in range(fw):
-        for y in range(fh):
-            baseHMap[x,y,:] = torch.tensor([x,y])
-
-    for _, (inputs, labels, masks, _) in enumerate(tqdm(s_loader)):
-        total += inputs.shape[0]
-        inputs, masks = inputs.to(device), masks.to(device)
-        labels = labels.to(device)
-        optimizer.zero_grad()
-        # optimizer2.zero_grad()
-        outputs = model(inputs)
-        f1 = outputs['l1'] # b,256,56,56
-        f2 = outputs['l2'] # b,512,28,28
-        f3 = outputs['l3'] # b,1024,14,14
-        f4 = outputs['l4'] # b,2048,7,7
-        # fh, fw = f4.shape[-2:]
-        outputs = outputs['fc'] 
-        _, pred = torch.max(outputs, 1)
-        running_acc += (pred == labels).sum().item()
-        loss1 = criterion(outputs, labels)
-
-        # for label in labels:
-        #     class_dict[label.item()] += 1
-        
-        gt_points = []
-        # print(fh, fw)
-        for mask in masks:
-            mask = mask.squeeze(0)
-            mask[mask>0]=1.
-            m_point, _ = get_center_box(mask, mode='max')
-            m_point /= torch.tensor(mask.shape) # range : 0 ~ 1
-            x, y = int(fw*m_point[0]), int(fh*m_point[1]) # 7,7
-
-            # pointMap = baseMap.clone()
-            # pointMap[y, x] = 1
-            pointMap = gen_gaussian_HM([y,x], size=[fh, fw], base_heatmap=baseHMap)
-
-            gt_points.append(pointMap)
-        gt_points = torch.stack(gt_points) # b, 7, 7
-        gt_points = gt_points.view([gt_points.shape[0], -1]) # b, 49
-        gt_points = gt_points.to(device)
-
-        # f1 = reg_head[0](f1) # b,1,56,56
-        f1 = torch.mean(f1, 1)
-        f1 = F.adaptive_avg_pool2d(f1, (fh,fw))
-        # f2 = reg_head[1](f2) # b,1,28,28
-        f2 = torch.mean(f2, 1)
-        f2 = F.adaptive_avg_pool2d(f2, (fh,fw))
-        # f3 = reg_head[2](f3) # b,1,14,14
-        f3 = torch.mean(f3, 1)
-        f3 = F.adaptive_avg_pool2d(f3, (fh,fw))
-        # f4 = reg_head[3](f4) # b,1,7,7
-        f4 = torch.mean(f4, 1)
-        f4 = F.adaptive_avg_pool2d(f4, (fh,fw))
-        # f = reg_head[4](torch.stack([f1,f2,f3,f4], 1).squeeze()) # b,1,7,7
-        f = torch.stack([f1,f2,f3,f4], 1).squeeze()
-        if len(f.shape) < 4:
-            f = f.unsqueeze(0)
-        f = torch.mean(f, dim=1)
-        # print(f.shape)
-
-        reg_outputs = f.squeeze() # b, 7, 7
-        # print('1. ', reg_outputs.shape)
-        if len(reg_outputs.shape) == 2:
-            reg_outputs = reg_outputs.unsqueeze(0)
-        # print('2. ',reg_outputs.shape)
-        reg_outputs = reg_outputs.view([reg_outputs.shape[0], -1]) # b, 49
-        # print('3. ',reg_outputs.shape)
-
-        # reg_outputs = torch.sigmoid(reg_outputs)
-        reg_outputs = torch.softmax(reg_outputs, -1)
-
-        reg_outputs = reg_outputs.float()
-        gt_points = gt_points.float()
-        
-        loss2 = 10*criterion2(reg_outputs, gt_points)
-        # loss2 = criterion2(reg_outputs, gt_points)
-        
-        if epoch==-1:
-            loss = loss2
-        else:
-            loss = loss1 + loss2
-        loss.backward()
-        optimizer.step()
-        # optimizer2.step()
-        running_loss1 += loss1.item()
-        running_loss2 += loss2.item()
-    total_acc = 100 * running_acc / total
-    print("Total : ", total)
-    print("Acc : ", total_acc)
-    print("Loss 1 : ", running_loss1 / total)
-    print("Loss 2 : ", running_loss2 / total)
-    print("Total Loss : ", (running_loss1+running_loss2) / total)
-    # print("Class Dict : ", class_dict[0], class_dict[1], class_dict[2])
-
 def test(epoch, model, loader, criterion, device, minLoss, spath, reg_head=None):
     print('\nEpoch: %d'%epoch)
     if type(model)==dict:
@@ -200,6 +94,145 @@ def test(epoch, model, loader, criterion, device, minLoss, spath, reg_head=None)
         else:
             return minLoss
 
+def metric(model, loader, num_classes, device):
+    model.eval()
+    class_AP = dict()
+    class_AR = dict()
+    class_ARoverAP = dict()
+    confusion_matrix = torch.zeros([num_classes, num_classes])
+    for i, (imgs, labels, _, _) in enumerate(tqdm(loader)):
+        imgs, labels = imgs.to(device), labels.to(device)
+        outputs = model(imgs)
+        if type(outputs)==dict:
+            outputs = outputs['fc']
+        _, preds = torch.max(outputs, 1)
+        
+        for j in range(len(labels)):
+            label = labels[j]
+            pred = preds[j]
+            confusion_matrix[label][pred] += 1
+    
+    for i in range(num_classes):
+        TP = confusion_matrix[i][i]
+        FP = torch.sum(confusion_matrix[:,i]) - TP
+        FN = torch.sum(confusion_matrix[i]) - TP
+        class_AP[i] = (100*TP / (TP + FP + 1e-6)).item()
+        class_AR[i] = (100*TP / (TP + FN + 1e-6)).item()
+        # class_ARoverAP[i] = ((TP + FN) / (TP + FP+1e-6)).item()
+    print(confusion_matrix)
+    # print(f'Class AP/AR: {class_ARoverAP},\n mAP/mAR : {torch.sum(torch.stack(list(class_ARoverAP.values())))/num_classes}')
+    mAP = sum(class_AP.values())/num_classes+1e-6
+    mAR = sum(class_AR.values())/num_classes+1e-6
+    print('mAP : ',mAP)
+    print('mAR : ', mAR)
+    print('F1 : ', 2*(mAP * mAR)/(mAP + mAR))
+
+def point_regression3(epoch, model, s_loader, criterion, criterion2, optimizer, device, feat_size=(7,7)):
+    print('\nEpoch: %d'%epoch)
+    model.train()
+    running_loss1 = 0.0
+    running_loss2 = 0.0
+    running_acc = 0.0
+    total = 0
+    fh, fw = feat_size
+    # class_dict = {0:0, 1:0, 2:0}
+    baseMap = torch.zeros([fh,fw])
+    baseHMap = torch.zeros([fh,fw,2])
+    for x in range(fw):
+        for y in range(fh):
+            baseHMap[x,y,:] = torch.tensor([x,y])
+
+    for _, (inputs, labels, masks, _) in enumerate(tqdm(s_loader)):
+        total += inputs.shape[0]
+        inputs, masks = inputs.to(device), masks.to(device)
+        labels = labels.to(device)
+        optimizer.zero_grad()
+        # optimizer2.zero_grad()
+        outputs = model(inputs)
+        f1 = outputs['l1'] # b,256,56,56
+        f2 = outputs['l2'] # b,512,28,28
+        f3 = outputs['l3'] # b,1024,14,14
+        f4 = outputs['l4'] # b,2048,7,7
+        # fh, fw = f4.shape[-2:]
+        outputs = outputs['fc'] 
+        _, pred = torch.max(outputs, 1)
+        running_acc += (pred == labels).sum().item()
+        loss1 = criterion(outputs, labels)
+
+        # for label in labels:
+        #     class_dict[label.item()] += 1
+        
+        gt_points = []
+        # print(fh, fw)
+        for mask in masks:
+            mask = mask.squeeze(0)
+            mask[mask>0]=1.
+            m_point, _ = get_center_box(mask, mode='max')
+            m_point /= torch.tensor(mask.shape) # range : 0 ~ 1
+            x, y = int(fw*m_point[0]), int(fh*m_point[1]) # 7,7
+
+            pointMap = baseMap.clone()
+            pointMap[y, x] = 1
+            # pointMap = gen_gaussian_HM([y,x], size=[fh, fw], base_heatmap=baseHMap)
+
+            gt_points.append(pointMap)
+        gt_points = torch.stack(gt_points) # b, 7, 7
+        gt_points = gt_points.view([gt_points.shape[0], -1]) # b, 49
+        gt_points = gt_points.to(device)
+
+        # f1 = reg_head[0](f1) # b,1,56,56
+        f1 = torch.mean(f1, 1)
+        f1 = F.adaptive_avg_pool2d(f1, (fh,fw))
+        # f2 = reg_head[1](f2) # b,1,28,28
+        f2 = torch.mean(f2, 1)
+        f2 = F.adaptive_avg_pool2d(f2, (fh,fw))
+        # f3 = reg_head[2](f3) # b,1,14,14
+        f3 = torch.mean(f3, 1)
+        f3 = F.adaptive_avg_pool2d(f3, (fh,fw))
+        # f4 = reg_head[3](f4) # b,1,7,7
+        f4 = torch.mean(f4, 1)
+        f4 = F.adaptive_avg_pool2d(f4, (fh,fw))
+        # f = reg_head[4](torch.stack([f1,f2,f3,f4], 1).squeeze()) # b,1,7,7
+        f = torch.stack([f1,f2,f3,f4], 1).squeeze()
+        if len(f.shape) < 4:
+            f = f.unsqueeze(0)
+        f = torch.mean(f, dim=1)
+        # print(f.shape)
+
+        reg_outputs = f.squeeze() # b, 7, 7
+        # print('1. ', reg_outputs.shape)
+        if len(reg_outputs.shape) == 2:
+            reg_outputs = reg_outputs.unsqueeze(0)
+        # print('2. ',reg_outputs.shape)
+        reg_outputs = reg_outputs.view([reg_outputs.shape[0], -1]) # b, 49
+        # print('3. ',reg_outputs.shape)
+
+        # reg_outputs = torch.sigmoid(reg_outputs)
+        reg_outputs = torch.softmax(reg_outputs, -1)
+
+        reg_outputs = reg_outputs.float()
+        gt_points = gt_points.float()
+        
+        loss2 = 1*criterion2(reg_outputs, gt_points)
+        # loss2 = criterion2(reg_outputs, gt_points)
+        
+        if epoch==-1:
+            loss = loss2
+        else:
+            loss = loss1 + loss2
+        loss.backward()
+        optimizer.step()
+        # optimizer2.step()
+        running_loss1 += loss1.item()
+        running_loss2 += loss2.item()
+    total_acc = 100 * running_acc / total
+    print("Total : ", total)
+    print("Acc : ", total_acc)
+    print("Loss 1 : ", running_loss1 / total)
+    print("Loss 2 : ", running_loss2 / total)
+    print("Total Loss : ", (running_loss1+running_loss2) / total)
+    # print("Class Dict : ", class_dict[0], class_dict[1], class_dict[2])
+
 def regression_test3(epoch, model, loader, criterion, criterion2, device, minLoss, spath, feat_size=(7,7)):
     print('\nEpoch: %d'%epoch)
     model.eval()
@@ -237,9 +270,9 @@ def regression_test3(epoch, model, loader, criterion, criterion2, device, minLos
                 m_point /= torch.tensor(mask.shape) # range : 0 ~ 1
                 x, y = int(fw*m_point[0]), int(fh*m_point[1]) # 7,7
 
-                # pointMap = baseMap.clone()
-                # pointMap[y, x] = 1
-                pointMap = gen_gaussian_HM([y,x], size=[fh, fw], base_heatmap=baseHMap)
+                pointMap = baseMap.clone()
+                pointMap[y, x] = 1
+                # pointMap = gen_gaussian_HM([y,x], size=[fh, fw], base_heatmap=baseHMap)
                 gt_points.append(pointMap)
             gt_points = torch.stack(gt_points) # b, 7, 7
             gt_points = gt_points.view([gt_points.shape[0], -1]) # b, 49
@@ -274,7 +307,7 @@ def regression_test3(epoch, model, loader, criterion, criterion2, device, minLos
             reg_outputs = reg_outputs.float()
             gt_points = gt_points.float()
             
-            loss2 = 10*criterion2(reg_outputs, gt_points)
+            loss2 = 1*criterion2(reg_outputs, gt_points)
             # loss2 = criterion2(reg_outputs, gt_points)
 
             loss = loss1 + loss2
@@ -294,40 +327,35 @@ def regression_test3(epoch, model, loader, criterion, criterion2, device, minLos
         else:
             return minLoss
 
-def metric(model, loader, num_classes, device):
-    model.eval()
-    class_AP = dict()
-    class_AR = dict()
-    class_ARoverAP = dict()
-    confusion_matrix = torch.zeros([num_classes, num_classes])
-    for i, (imgs, labels, _, _) in enumerate(tqdm(loader)):
-        imgs, labels = imgs.to(device), labels.to(device)
-        outputs = model(imgs)
-        if type(outputs)==dict:
-            outputs = outputs['fc']
-        _, preds = torch.max(outputs, 1)
-        
-        for j in range(len(labels)):
-            label = labels[j]
-            pred = preds[j]
-            confusion_matrix[label][pred] += 1
-    
-    for i in range(num_classes):
-        TP = confusion_matrix[i][i]
-        FP = torch.sum(confusion_matrix[:,i]) - TP
-        FN = torch.sum(confusion_matrix[i]) - TP
-        class_AP[i] = (100*TP / (TP + FP + 1e-6)).item()
-        class_AR[i] = (100*TP / (TP + FN + 1e-6)).item()
-        # class_ARoverAP[i] = ((TP + FN) / (TP + FP+1e-6)).item()
-    print(confusion_matrix)
-    # print(f'Class AP/AR: {class_ARoverAP},\n mAP/mAR : {torch.sum(torch.stack(list(class_ARoverAP.values())))/num_classes}')
-    mAP = sum(class_AP.values())/num_classes+1e-6
-    mAR = sum(class_AR.values())/num_classes+1e-6
-    print('mAP : ',mAP)
-    print('mAR : ', mAR)
-    print('F1 : ', 2*(mAP * mAR)/(mAP + mAR))
-    
+def point4wrong(epoch, model, s_loader, u_loader, criterion, criterion2, optimizer, device, feat_size=(7,7)):
+    print('For Correct Set. ')
+    train(epoch, model, u_loader, criterion, optimizer, device)
+    print('For Wrong Set. ')
+    point_regression3(epoch, model, s_loader, criterion, criterion2, optimizer, device, feat_size=feat_size)
+
 #---------------------------------------------------------------------
+def select_wrongs(model, loader, device):
+    selects = []
+    unselects = []
+    model.eval()
+    with torch.no_grad():
+        for _, (inputs, labels, _, indexes) in enumerate(tqdm(loader)):
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            if type(outputs)==dict:
+                f1 = outputs['l1'] # b,256,56,56
+                f2 = outputs['l2'] # b,512,28,28
+                f3 = outputs['l3'] # b,1024,14,14
+                f4 = outputs['l4'] # b,2048,7,7
+                outputs = outputs['fc']
+            _, preds = torch.max(outputs, 1)
+            for (pred, label, index) in zip(preds, labels, indexes):
+                if pred.item()!=label.item():
+                    selects.append(index)
+                else:
+                    unselects.append(index)
+        return selects, unselects
+
 def gen_gaussian_HM(point, size=7, sigma=1., base_heatmap=None):
     if type(size)==int:
         size = [size,size]

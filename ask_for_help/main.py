@@ -19,12 +19,12 @@ from utils import *
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dpath1', type=str, default='/ailab_mat/dataset/HAM10000/')
-parser.add_argument('--dpath2', type=str, default='/home/yunjae_heo/datas/isic2017/balanced_train')
-parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000')
+parser.add_argument('--dpath2', type=str, default='/home/yunjae_heo/datas/CUB_dataset/datas')
+parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/CUB200')
 parser.add_argument('--pretrained', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000/seed0/ham10000_origin/model.pth')
 parser.add_argument('--epoch1', type=int, default=60)
 parser.add_argument('--epoch2', type=int, default=10)
-parser.add_argument('--dataset', type=str, default='ISIC2017')
+parser.add_argument('--dataset', type=str, default='CUB200')
 parser.add_argument('--query', type=str, default='')
 parser.add_argument('--batch', type=int, default=28)
 parser.add_argument('--lr', type=float, default=1e-4)
@@ -168,8 +168,8 @@ if args.mode=='point':
         for i in range(0, args.epoch2):
             train(i, model, testloader1, criterion, optimizer, device1)
             minLoss = test(i, model, testloader3, criterion, device1, minLoss, save_path)
-            # metric(model, testloader2, num_classes=3, device=device1)
         model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
-        if args.dataset == 'CUB200': num_classes=200
-        if args.dataset == 'ISIC2017': num_classes=2
-        metric(model, testloader2, num_classes=num_classes, device=device1)
+        test(-1, model, testloader2, criterion, device1, minLoss, save_path)
+        # if args.dataset == 'CUB200': num_classes=200
+        # if args.dataset == 'ISIC2017': num_classes=2
+        # metric(model, testloader2, num_classes=num_classes, device=device1)

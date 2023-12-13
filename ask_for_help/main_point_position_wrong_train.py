@@ -22,11 +22,11 @@ parser.add_argument('--dpath1', type=str, default='/ailab_mat/dataset/HAM10000/'
 parser.add_argument('--dpath2', type=str, default='/home/yunjae_heo/datas/CUB_dataset/datas')
 parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/CUB200')
 parser.add_argument('--pretrained', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000/seed0/ham10000_origin/model.pth')
-parser.add_argument('--epoch1', type=int, default=100)
-parser.add_argument('--epoch2', type=int, default=100)
+parser.add_argument('--epoch1', type=int, default=60)
+parser.add_argument('--epoch2', type=int, default=60)
 parser.add_argument('--dataset', type=str, default='CUB200')
 parser.add_argument('--query', type=str, default='')
-parser.add_argument('--batch', type=int, default=24)
+parser.add_argument('--batch', type=int, default=28)
 parser.add_argument('--lr', type=float, default=1e-4)
 parser.add_argument('--lr2', type=float, default=1e-4)
 parser.add_argument('--beta1', type=float, default=0.9)
@@ -37,7 +37,7 @@ parser.add_argument('--mode', type=str, default='point')
 parser.add_argument('--ratio', type=float, default=1.0)
 parser.add_argument('--note', type=str, default='')
 parser.add_argument('--num_train', type=int, default=20)
-parser.add_argument('--num_trial', type=int, default=5)
+parser.add_argument('--num_trial', type=int, default=10)
 parser.add_argument('--f_size', type=int, default=7)
 args = parser.parse_args()
 
@@ -57,8 +57,8 @@ else:
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
 # save_path = os.path.join(save_path, 'melanoma_classification')
-if not os.path.isdir(save_path):
-    os.mkdir(save_path)
+# if not os.path.isdir(save_path):
+#     os.mkdir(save_path)
 save_path = os.path.join(save_path, args.note)
 if not os.path.isdir(save_path):
     os.mkdir(save_path)
@@ -117,7 +117,6 @@ torch.backends.cudnn.benchmark = True
 optimizer = optim.Adam(model.parameters(), args.lr)
 criterion = nn.CrossEntropyLoss()
 
-
 if args.mode=='base':
     MinLoss = 0.0
     for i in range(args.epoch1):
@@ -148,11 +147,22 @@ if args.mode=='point':
         criterion2 = nn.BCELoss()
 
         MinLoss = 999
-        for i in range(0, args.epoch2):
-            position_prediction(i, model, testloader1, criterion, criterion2, optimizer, device1, feat_size=(args.f_size, args.f_size))
+        for i in range(0, args.epoch1):
+            train(i, model, testloader1, criterion, optimizer, device1)
             MinLoss = test(i, model, testloader3, criterion, device1, MinLoss, save_path)
-            # MinLoss = regression_test3(i, model, testloader3, criterion, criterion2, device1, MinLoss, save_path, feat_size=(args.f_size, args.f_size))
-            print(MinLoss)
+        model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
+        test(-1, model, testloader2, criterion, device1, MinLoss, save_path)
+
+        selects, unselects = select_wrongs(model, testloader1, device1)
+        selectset = Subset(testset1, selects)
+        unselectset = Subset(testset1, unselects)
+        selectloader = DataLoader(selectset, args.batch, shuffle=True, num_workers=4)
+        unselectloader = DataLoader(unselectset, args.batch, shuffle=True, num_workers=4)
+
+        MinLoss = 999
+        for i in range(0, args.epoch2):
+            point4wrong(i, model, selectloader, unselectloader, criterion, criterion2, optimizer, device1)
+            MinLoss = test(i, model, testloader3, criterion, device1, MinLoss, save_path)
         model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
         test(-1, model, testloader2, criterion, device1, MinLoss, save_path)
         # if args.dataset == 'CUB200': num_classes=200
