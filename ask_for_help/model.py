@@ -27,6 +27,11 @@ class PPM(torch.nn.Module):
             self.module_dict['pos_head4'] = nn.Conv2d(2048, 1, 1, 1)
             self.module_dict['adaptive_pool'] = nn.AdaptiveAvgPool2d((7,7))
 
+            self.module_dict['pos_bn1'] = nn.BatchNorm2d(256)
+            self.module_dict['pos_bn2'] = nn.BatchNorm2d(512)
+            self.module_dict['pos_bn3'] = nn.BatchNorm2d(1024)
+            self.module_dict['pos_bn4'] = nn.BatchNorm2d(2048)
+
     def forward(self, x):
         outputs = self.module_dict['conv1'](x)
         outputs = self.module_dict['bn1'](outputs)
@@ -37,25 +42,29 @@ class PPM(torch.nn.Module):
         pos1 = self.module_dict['pos_head1'](outputs)
         pos1 = self.module_dict['adaptive_pool'](pos1)
         weight = self.module_dict['pos_head1'].weight
-        outputs = weight*outputs + outputs
+        outputs = weight*outputs
+        outputs = self.module_dict['pos_bn1'](outputs)
         
         outputs = self.module_dict['layer2'](outputs)
         pos2 = self.module_dict['pos_head2'](outputs)
         pos2 = self.module_dict['adaptive_pool'](pos2)
         weight = self.module_dict['pos_head2'].weight
-        outputs = weight*outputs + outputs
+        outputs = weight*outputs
+        outputs = self.module_dict['pos_bn2'](outputs)
         
         outputs = self.module_dict['layer3'](outputs)
         pos3 = self.module_dict['pos_head3'](outputs)
         pos3 = self.module_dict['adaptive_pool'](pos3)
         weight = self.module_dict['pos_head3'].weight
-        outputs = weight*outputs + outputs
+        outputs = weight*outputs
+        outputs = self.module_dict['pos_bn3'](outputs)
         
         outputs = self.module_dict['layer4'](outputs)
         pos4 = self.module_dict['pos_head4'](outputs)
         pos4 = self.module_dict['adaptive_pool'](pos4)
         weight = self.module_dict['pos_head4'].weight
-        outputs = weight*outputs + outputs
+        outputs = weight*outputs
+        outputs = self.module_dict['pos_bn4'](outputs)
         
         # print('1 ', outputs.shape)
         outputs = self.module_dict['avgpool'](outputs)
