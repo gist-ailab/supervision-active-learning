@@ -173,7 +173,7 @@ def point_regression3(epoch, model, s_loader, criterion, criterion2, optimizer, 
 
             pointMap = baseMap.clone()
             pointMap[y, x] = 1
-            # pointMap = gen_gaussian_HM([y,x], size=[fh, fw], base_heatmap=baseHMap)
+            pointMap = gen_gaussian_HM([y,x], size=[fh, fw], base_heatmap=baseHMap)
 
             gt_points.append(pointMap)
         gt_points = torch.stack(gt_points) # b, 7, 7
@@ -328,10 +328,11 @@ def regression_test3(epoch, model, loader, criterion, criterion2, device, minLos
             return minLoss
 
 def point4wrong(epoch, model, s_loader, u_loader, criterion, criterion2, optimizer, device, feat_size=(7,7)):
-    print('For Correct Set. ')
-    train(epoch, model, u_loader, criterion, optimizer, device)
     print('For Wrong Set. ')
     point_regression3(epoch, model, s_loader, criterion, criterion2, optimizer, device, feat_size=feat_size)
+    print('For Correct Set. ')
+    train(epoch, model, u_loader, criterion, optimizer, device)
+    
 
 #---------------------------------------------------------------------
 def select_wrongs(model, loader, device):

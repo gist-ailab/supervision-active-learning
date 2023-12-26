@@ -122,15 +122,16 @@ class ISIC2017_2(Dataset):
         return transforms.Compose(img_transform), transforms.Compose(mask_transform)
 
 class ISIC2017_3(Dataset):
-    def __init__(self, path, mode):
+    def __init__(self, path, mode, idx_list=[]):
         super(ISIC2017_3, self).__init__()
         self.path = path
         self.mode = mode
-        self.classes = {'nv':1, 'mel':1, 'bkl':0}
+        self.classes = {'nv':1, 'mel':0, 'bkl':1}
         self.img_list = glob(os.path.join(self.path, self.mode, 'nv','*'))\
             + glob(os.path.join(self.path, self.mode, 'mel','*'))\
             + glob(os.path.join(self.path, self.mode, 'bkl','*'))
         self.imgt, self.maskt = self.init_transforms()
+        self.idx_list = idx_list
             
     def __len__(self):
         return len(self.img_list)
@@ -145,13 +146,19 @@ class ISIC2017_3(Dataset):
         img = self.imgt(img)
         mask = self.maskt(mask)
         label = self.classes[label]
-        # p1 = random.random()
-        # p2 = random.random()
-        # if p1 > 0.5 and self.mode=='train':
-        #     img, mask = F2.hflip(img), F2.hflip(mask)
-        # if p2 > 0.5 and self.mode=='train':
-        #     img, mask = F2.vflip(img), F2.vflip(mask)
-        return img, label, mask, idx
+        p1 = random.random()
+        p2 = random.random()
+        if p1 > 0.5 and self.mode=='train':
+            img, mask = F2.hflip(img), F2.hflip(mask)
+        if p2 > 0.5 and self.mode=='train':
+            img, mask = F2.vflip(img), F2.vflip(mask)
+        if idx in self.idx_list:
+            mask = mask.view(1, mask.shape[0], mask.shape[1])
+            img_c = torch.cat([img, mask], dim=0)
+        else:
+            dummy = torch.ones([1, mask.shape[1], mask.shape[2]])
+            img_c = torch.cat([img, dummy], dim=0)
+        return img_c, label, mask, idx
     
     def init_transforms(self):
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
