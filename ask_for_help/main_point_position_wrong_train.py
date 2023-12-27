@@ -71,11 +71,11 @@ if args.dataset == 'ISIC2017':
     print('Num trainset : ', len(trainset))
     validset = HAM10000_origin(args.dpath1, mode='test') # 1511
     print('Num validset : ', len(validset))
-    testset1 = ISIC2017_3(args.dpath2, mode='train') # 750
+    testset1 = ISIC2017_2(args.dpath2, mode='train') # 750
     print('Num testset1 : ', len(testset1))
-    testset2 = ISIC2017_3(args.dpath2, mode='test') # 600
+    testset2 = ISIC2017_2(args.dpath2, mode='test') # 600
     print('Num testset2 : ', len(testset2))
-    testset3 = ISIC2017_3(args.dpath2, mode='val') # 150
+    testset3 = ISIC2017_2(args.dpath2, mode='val') # 150
     print('Num testset3 : ', len(testset3))
     
     trainloader = DataLoader(trainset, args.batch, shuffle=True, num_workers=4)
@@ -115,7 +115,6 @@ if args.dataset == 'CUB200':
     model = model.to(device1)
 
 torch.backends.cudnn.benchmark = True
-
 optimizer = optim.Adam(model.parameters(), args.lr)
 criterion = nn.CrossEntropyLoss()
 
@@ -134,7 +133,7 @@ if args.mode=='point':
         print('Trial : ', trial)
         if args.dataset == 'ISIC2017':
             model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
-            model.conv1 = nn.Conv2d(4, 64, 7, 2, 3, bias=False)
+            # model.conv1 = nn.Conv2d(4, 64, 7, 2, 3, bias=False)
             model.fc = nn.Linear(2048, 2)
             if args.mode == 'base':
                 model = model.to(device1)
@@ -167,18 +166,18 @@ if args.mode=='point':
         if args.dataset == 'ISIC2017': num_classes=2
         metric(model, testloader2, num_classes=num_classes, device=device1)
 
-        # selects, unselects = select_wrongs(model, testloader1, device1)
-        # selectset = Subset(testset1, selects)
-        # unselectset = Subset(testset1, unselects)
-        # selectloader = DataLoader(selectset, args.batch, shuffle=True, num_workers=4)
-        # unselectloader = DataLoader(unselectset, args.batch, shuffle=True, num_workers=4)
+        selects, unselects = select_wrongs(model, testloader1, device1)
+        selectset = Subset(testset1, selects)
+        unselectset = Subset(testset1, unselects)
+        selectloader = DataLoader(selectset, args.batch, shuffle=True, num_workers=4)
+        unselectloader = DataLoader(unselectset, args.batch, shuffle=True, num_workers=4)
 
-        # MinLoss = 999
-        # for i in range(0, args.epoch2):
-        #     point4wrong(i, model, selectloader, unselectloader, criterion, criterion2, optimizer, device1)
-        #     MinLoss = test(i, model, testloader3, criterion, device1, MinLoss, save_path)
-        # model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
-        # test(-1, model, testloader2, criterion, device1, MinLoss, save_path)
-        # if args.dataset == 'CUB200': num_classes=200
-        # if args.dataset == 'ISIC2017': num_classes=2
-        # metric(model, testloader2, num_classes=num_classes, device=device1)
+        MinLoss = 999
+        for i in range(0, args.epoch2):
+            semi_point_prediction(i, model, selectloader, unselectloader, criterion, criterion2, optimizer, device1, selected=[])
+            MinLoss = test(i, model, testloader3, criterion, device1, MinLoss, save_path)
+        model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
+        test(-1, model, testloader2, criterion, device1, MinLoss, save_path)
+        if args.dataset == 'CUB200': num_classes=200
+        if args.dataset == 'ISIC2017': num_classes=2
+        metric(model, testloader2, num_classes=num_classes, device=device1)

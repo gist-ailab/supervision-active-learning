@@ -137,9 +137,9 @@ def position_prediction(epoch, model, s_loader, criterion, criterion2, optimizer
             m_point /= torch.tensor(mask.shape) # range : 0 ~ 1
             x, y = int(fw*m_point[0]), int(fh*m_point[1]) # 7,7
 
-            pointMap = baseMap.clone()
-            pointMap[y, x] = 1
-            # pointMap = gen_gaussian_HM([y,x], size=[fh, fw], base_heatmap=baseHMap)
+            # pointMap = baseMap.clone()
+            # pointMap[y, x] = 1
+            pointMap = gen_gaussian_HM([y,x], size=[fh, fw], base_heatmap=baseHMap)
 
             gt_points.append(pointMap)
         gt_points = torch.stack(gt_points) # b, 7, 7

@@ -233,6 +233,94 @@ def point_regression3(epoch, model, s_loader, criterion, criterion2, optimizer, 
     print("Total Loss : ", (running_loss1+running_loss2) / total)
     # print("Class Dict : ", class_dict[0], class_dict[1], class_dict[2])
 
+def semi_point_prediction(epoch, model, s_loader, criterion, criterion2, optimizer, device, feat_size=(7,7), selected=[]):
+    print('\nEpoch: %d'%epoch)
+    model.train()
+    running_loss1 = 0.0
+    running_loss2 = 0.0
+    running_acc = 0.0
+    total = 0
+    fh, fw = feat_size
+    # class_dict = {0:0, 1:0, 2:0}
+    baseMap = torch.zeros([fh,fw])
+    baseHMap = torch.zeros([fh,fw,2])
+    for x in range(fw):
+        for y in range(fh):
+            baseHMap[x,y,:] = torch.tensor([x,y])
+
+    for _, (inputs, labels, masks, indexes) in enumerate(tqdm(s_loader)):
+        total += inputs.shape[0]
+        inputs, masks = inputs.to(device), masks.to(device)
+        labels = labels.to(device)
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        f1 = outputs['l1'] # b,256,56,56
+        f2 = outputs['l2'] # b,512,28,28
+        f3 = outputs['l3'] # b,1024,14,14
+        f4 = outputs['l4'] # b,2048,7,7
+        outputs = outputs['fc'] 
+        _, pred = torch.max(outputs, 1)
+        running_acc += (pred == labels).sum().item()
+        loss1 = criterion(outputs, labels)
+        
+        f1 = torch.mean(f1, 1)
+        f1 = F.adaptive_avg_pool2d(f1, (fh,fw))
+        f2 = torch.mean(f2, 1)
+        f2 = F.adaptive_avg_pool2d(f2, (fh,fw))
+        f3 = torch.mean(f3, 1)
+        f3 = F.adaptive_avg_pool2d(f3, (fh,fw))
+        f4 = torch.mean(f4, 1)
+        f4 = F.adaptive_avg_pool2d(f4, (fh,fw))
+        f = torch.stack([f1,f2,f3,f4], 1).squeeze()
+        if len(f.shape) < 4:
+            f = f.unsqueeze(0)
+        f = torch.mean(f, dim=1)
+
+        reg_outputs = f.squeeze() # b, 7, 7
+        if len(reg_outputs.shape) == 2:
+            reg_outputs = reg_outputs.unsqueeze(0)
+        reg_outputs = reg_outputs.view([reg_outputs.shape[0], -1]) # b, 49
+        reg_outputs = torch.softmax(reg_outputs, -1)
+
+        gt_points = []
+        for mask, idx, reg_output in zip(masks, indexes, reg_outputs):
+            if idx in selected:
+                mask = mask.squeeze(0)
+                mask[mask>0]=1.
+                m_point, _ = get_center_box(mask, mode='max')
+                m_point /= torch.tensor(mask.shape) # range : 0 ~ 1
+                x, y = int(fw*m_point[0]), int(fh*m_point[1]) # 7,7
+                # pointMap = baseMap.clone()
+                # pointMap[y, x] = 1
+                pointMap = gen_gaussian_HM([y,x], size=[fh, fw], base_heatmap=baseHMap)
+            else:
+                pointMap = reg_output.clone()
+                pointMap[pointMap>=torch.max(pointMap)] = 1.0
+                pointMap[pointMap<torch.max(pointMap)] = 0.0
+                pointMap = pointMap.view([fh, fw])
+                print(pointMap.shape)
+            gt_points.append(pointMap)
+        gt_points = torch.stack(gt_points) # b, 7, 7
+        gt_points = gt_points.view([gt_points.shape[0], -1]) # b, 49
+        gt_points = gt_points.to(device)
+
+        reg_outputs = reg_outputs.float()
+        gt_points = gt_points.float()
+        
+        loss2 = 10*criterion2(reg_outputs, gt_points)
+        loss = loss1 + loss2
+        loss.backward()
+        optimizer.step()
+
+        running_loss1 += loss1.item()
+        running_loss2 += loss2.item()
+    total_acc = 100 * running_acc / total
+    print("Total : ", total)
+    print("Acc : ", total_acc)
+    print("Loss 1 : ", running_loss1 / total)
+    print("Loss 2 : ", running_loss2 / total)
+    print("Total Loss : ", (running_loss1+running_loss2) / total)
+
 def regression_test3(epoch, model, loader, criterion, criterion2, device, minLoss, spath, feat_size=(7,7)):
     print('\nEpoch: %d'%epoch)
     model.eval()

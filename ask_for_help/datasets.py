@@ -153,7 +153,7 @@ class ISIC2017_3(Dataset):
         if p2 > 0.5 and self.mode=='train':
             img, mask = F2.vflip(img), F2.vflip(mask)
         if idx in self.idx_list:
-            mask = mask.view(1, mask.shape[0], mask.shape[1])
+            mask = mask.view(1, mask.shape[1], mask.shape[2])
             img_c = torch.cat([img, mask], dim=0)
         else:
             dummy = torch.ones([1, mask.shape[1], mask.shape[2]])
