@@ -19,7 +19,7 @@ from model import PPM
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dpath1', type=str, default='/ailab_mat/dataset/HAM10000/')
-parser.add_argument('--dpath2', type=str, default='/home/yunjae_heo/datas/CUB_dataset/datas')
+parser.add_argument('--dpath2', type=str, default='/SSDg/yjh/datas/CUB_dataset/datas')
 parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/CUB200')
 parser.add_argument('--pretrained', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000/seed0/ham10000_origin/model.pth')
 parser.add_argument('--epoch1', type=int, default=100)

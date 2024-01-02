@@ -14,6 +14,38 @@ from scipy import ndimage
 from torchvision.ops import masks_to_boxes
 from kcenterGreedy import kCenterGreedy
 import random
+import torchvision.models as models
+import torch.nn as nn
+from torchvision.models.feature_extraction import create_feature_extractor
+
+def init_model(device, name='mobilenet', num_class=2):
+    if name == 'resnet50':
+        model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+        model.fc = nn.Linear(2048, num_class)
+        return_nodes = {
+            'layer1':'l1',
+            'layer2':'l2',
+            'layer3':'l3',
+            'layer4':'l4',
+            'fc':'fc'
+        }
+        model = create_feature_extractor(model, return_nodes=return_nodes)
+        model = model.to(device)
+    
+    if name == 'mobilenet':
+        model = models.mobilenet_v2(weights=models.MobileNet_V2_Weights.DEFAULT)
+        model.classifier = nn.Sequential(
+            nn.Dropout(p=0.2),
+            nn.Linear(in_features=1280, out_features=num_class, bias=True)
+        )
+        return_nodes = {
+            'features':'l4',
+            'classifier':'fc'
+        }
+        model = create_feature_extractor(model, return_nodes=return_nodes)
+        model = model.to(device)
+    return model
+
 
 def collate_fn(batch):
     return tuple(zip(*batch))
@@ -254,27 +286,37 @@ def semi_point_prediction(epoch, model, s_loader, criterion, criterion2, optimiz
         labels = labels.to(device)
         optimizer.zero_grad()
         outputs = model(inputs)
-        f1 = outputs['l1'] # b,256,56,56
-        f2 = outputs['l2'] # b,512,28,28
-        f3 = outputs['l3'] # b,1024,14,14
-        f4 = outputs['l4'] # b,2048,7,7
-        outputs = outputs['fc'] 
+
+        if len(outputs.keys())==4:
+            f1 = outputs['l1'] # b,256,56,56
+            f2 = outputs['l2'] # b,512,28,28
+            f3 = outputs['l3'] # b,1024,14,14
+            f4 = outputs['l4'] # b,2048,7,7
+            outputs = outputs['fc'] 
+            
+            f1 = torch.mean(f1, 1)
+            f1 = F.adaptive_avg_pool2d(f1, (fh,fw))
+            f2 = torch.mean(f2, 1)
+            f2 = F.adaptive_avg_pool2d(f2, (fh,fw))
+            f3 = torch.mean(f3, 1)
+            f3 = F.adaptive_avg_pool2d(f3, (fh,fw))
+            f4 = torch.mean(f4, 1)
+            f4 = F.adaptive_avg_pool2d(f4, (fh,fw))
+            f = torch.stack([f1,f2,f3,f4], 1).squeeze()
+            if len(f.shape) < 4:
+                f = f.unsqueeze(0)
+            f = torch.mean(f, dim=1)
+
+        if len(outputs.keys())==2:
+            f4 = outputs['l4']
+            outputs = outputs['fc']
+
+            f4 = torch.mean(f4, 1)
+            f = F.adaptive_avg_pool2d(f4, (fh,fw))
+
         _, pred = torch.max(outputs, 1)
         running_acc += (pred == labels).sum().item()
         loss1 = criterion(outputs, labels)
-        
-        f1 = torch.mean(f1, 1)
-        f1 = F.adaptive_avg_pool2d(f1, (fh,fw))
-        f2 = torch.mean(f2, 1)
-        f2 = F.adaptive_avg_pool2d(f2, (fh,fw))
-        f3 = torch.mean(f3, 1)
-        f3 = F.adaptive_avg_pool2d(f3, (fh,fw))
-        f4 = torch.mean(f4, 1)
-        f4 = F.adaptive_avg_pool2d(f4, (fh,fw))
-        f = torch.stack([f1,f2,f3,f4], 1).squeeze()
-        if len(f.shape) < 4:
-            f = f.unsqueeze(0)
-        f = torch.mean(f, dim=1)
 
         reg_outputs = f.squeeze() # b, 7, 7
         if len(reg_outputs.shape) == 2:
@@ -294,11 +336,13 @@ def semi_point_prediction(epoch, model, s_loader, criterion, criterion2, optimiz
                 # pointMap[y, x] = 1
                 pointMap = gen_gaussian_HM([y,x], size=[fh, fw], base_heatmap=baseHMap)
             else:
-                pointMap = reg_output.clone()
-                pointMap[pointMap>=torch.max(pointMap)] = 1.0
-                pointMap[pointMap<torch.max(pointMap)] = 0.0
-                pointMap = pointMap.view([fh, fw])
-                print(pointMap.shape)
+                idx = torch.argmax(reg_output)
+                y = int(idx//fh)
+                x = int(idx - fh*y)
+                # print(y, x)
+                pointMap = gen_gaussian_HM([y,x], size=[fh, fw], base_heatmap=baseHMap)
+                # pointMap = pointMap.view([fh, fw])
+                # print(pointMap.shape)
             gt_points.append(pointMap)
         gt_points = torch.stack(gt_points) # b, 7, 7
         gt_points = gt_points.view([gt_points.shape[0], -1]) # b, 49
@@ -320,6 +364,9 @@ def semi_point_prediction(epoch, model, s_loader, criterion, criterion2, optimiz
     print("Loss 1 : ", running_loss1 / total)
     print("Loss 2 : ", running_loss2 / total)
     print("Total Loss : ", (running_loss1+running_loss2) / total)
+
+def self_multimodal_prediction(epoch, model, s_loader, criterions, optimizer, device, feat_size=(7,7)):
+    pass
 
 def regression_test3(epoch, model, loader, criterion, criterion2, device, minLoss, spath, feat_size=(7,7)):
     print('\nEpoch: %d'%epoch)
@@ -432,10 +479,6 @@ def select_wrongs(model, loader, device):
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
             if type(outputs)==dict:
-                f1 = outputs['l1'] # b,256,56,56
-                f2 = outputs['l2'] # b,512,28,28
-                f3 = outputs['l3'] # b,1024,14,14
-                f4 = outputs['l4'] # b,2048,7,7
                 outputs = outputs['fc']
             _, preds = torch.max(outputs, 1)
             for (pred, label, index) in zip(preds, labels, indexes):

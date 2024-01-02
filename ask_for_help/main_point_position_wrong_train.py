@@ -22,7 +22,7 @@ parser.add_argument('--dpath1', type=str, default='/ailab_mat/dataset/HAM10000/'
 # parser.add_argument('--dpath2', type=str, default='/home/yunjae_heo/datas/CUB_dataset/datas')
 # parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/CUB200')
 # parser.add_argument('--dataset', type=str, default='CUB200')
-parser.add_argument('--dpath2', type=str, default='/home/yunjae_heo/datas/isic2017/imageFolder')
+parser.add_argument('--dpath2', type=str, default='/SSDg/yjh/datas/isic2017/imageFolder')
 parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000')
 parser.add_argument('--dataset', type=str, default='ISIC2017')
 parser.add_argument('--pretrained', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000/seed0/ham10000_origin/model.pth')
@@ -84,20 +84,7 @@ if args.dataset == 'ISIC2017':
     testloader2 = DataLoader(testset2, args.batch, shuffle=False, num_workers=4)
     testloader3 = DataLoader(testset3, args.batch, shuffle=False, num_workers=4)
 
-    model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
-    model.fc = nn.Linear(2048, 2)
-    if args.mode == 'base':
-        model = model.to(device1)
-    else:
-        return_nodes = {
-            'layer1':'l1',
-            'layer2':'l2',
-            'layer3':'l3',
-            'layer4':'l4',
-            'fc':'fc'
-        }
-        model = create_feature_extractor(model, return_nodes=return_nodes)
-        model = model.to(device1)
+    model = init_model(device=device1)
 
 if args.dataset == 'CUB200':
     testset1 = CUB200(args.dpath2, mode='train', num_train=args.num_train)
@@ -132,21 +119,7 @@ if args.mode=='point':
     for trial in range(args.num_trial):
         print('Trial : ', trial)
         if args.dataset == 'ISIC2017':
-            model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
-            # model.conv1 = nn.Conv2d(4, 64, 7, 2, 3, bias=False)
-            model.fc = nn.Linear(2048, 2)
-            if args.mode == 'base':
-                model = model.to(device1)
-            else:
-                return_nodes = {
-                    'layer1':'l1',
-                    'layer2':'l2',
-                    'layer3':'l3',
-                    'layer4':'l4',
-                    'fc':'fc'
-                }
-                model = create_feature_extractor(model, return_nodes=return_nodes)
-                model = model.to(device1)
+            model = init_model(device=device1)
         if args.dataset == 'CUB200':
             model = PPM(num_class=200)
             model = model.to(device1)
@@ -167,17 +140,22 @@ if args.mode=='point':
         metric(model, testloader2, num_classes=num_classes, device=device1)
 
         selects, unselects = select_wrongs(model, testloader1, device1)
-        selectset = Subset(testset1, selects)
-        unselectset = Subset(testset1, unselects)
-        selectloader = DataLoader(selectset, args.batch, shuffle=True, num_workers=4)
-        unselectloader = DataLoader(unselectset, args.batch, shuffle=True, num_workers=4)
+        # selectset = Subset(testset1, selects)
+        # unselectset = Subset(testset1, unselects)
+        # selectloader = DataLoader(selectset, args.batch, shuffle=True, num_workers=4)
+        # unselectloader = DataLoader(unselectset, args.batch, shuffle=True, num_workers=4)
+        # selects = [i for i in range(2000)]
+
+        model = init_model(device=device1)
+        optimizer = optim.Adam(model.parameters(), args.lr, betas=[args.beta1, args.beta2], eps=1e-8)
+        criterion2 = nn.BCELoss()
 
         MinLoss = 999
         for i in range(0, args.epoch2):
-            semi_point_prediction(i, model, selectloader, unselectloader, criterion, criterion2, optimizer, device1, selected=[])
+            semi_point_prediction(i, model, testloader1, criterion, criterion2, optimizer, device1, selected=selects)
             MinLoss = test(i, model, testloader3, criterion, device1, MinLoss, save_path)
         model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
-        test(-1, model, testloader2, criterion, device1, MinLoss, save_path)
+        # test(-1, model, testloader2, criterion, device1, MinLoss, save_path)
         if args.dataset == 'CUB200': num_classes=200
         if args.dataset == 'ISIC2017': num_classes=2
         metric(model, testloader2, num_classes=num_classes, device=device1)

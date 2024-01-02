@@ -118,3 +118,8 @@ class CHConcat(torch.nn.Module):
         outputs = self.module_dict['fc'](outputs)
         # print('3 ', outputs.shape)
         return outputs
+
+class ICICNet(torch.nn.Module): # intra class consistency and inter class discrimination
+    def __init__(self, num_class, model_name):
+        super(ICICNet, self).__init__()
+        
