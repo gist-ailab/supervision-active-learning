@@ -18,7 +18,7 @@ import torchvision.models as models
 import torch.nn as nn
 from torchvision.models.feature_extraction import create_feature_extractor
 
-def init_model(device, name='mobilenet', num_class=2):
+def init_model(device, name='mobilenet', num_class=3):
     if name == 'resnet50':
         model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
         model.fc = nn.Linear(2048, num_class)

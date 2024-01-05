@@ -22,8 +22,8 @@ parser.add_argument('--dpath1', type=str, default='/ailab_mat/dataset/HAM10000/'
 parser.add_argument('--dpath2', type=str, default='/SSDg/yjh/datas/CUB_dataset/datas')
 parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/CUB200')
 parser.add_argument('--pretrained', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000/seed0/ham10000_origin/model.pth')
-parser.add_argument('--epoch1', type=int, default=100)
-parser.add_argument('--epoch2', type=int, default=100)
+parser.add_argument('--epoch1', type=int, default=10)
+parser.add_argument('--epoch2', type=int, default=10)
 parser.add_argument('--dataset', type=str, default='CUB200')
 parser.add_argument('--query', type=str, default='')
 parser.add_argument('--batch', type=int, default=24)
@@ -132,12 +132,7 @@ if args.mode=='point':
     for trial in range(args.num_trial):
         print('Trial : ', trial)
         if args.dataset == 'ISIC2017':
-            model = models.resnet50(weights=None)
-            if not args.pretrained=='None':
-                model.fc = nn.Linear(2048, 7)
-                pretrained = torch.load(args.pretrained)
-                model.load_state_dict(pretrained)
-            model.fc = nn.Linear(2048, 2)
+            model = init_model(device=device1)
         if args.dataset == 'CUB200':
             model = PPM(num_class=200)
             model = model.to(device1)
@@ -154,7 +149,7 @@ if args.mode=='point':
             # MinLoss = regression_test3(i, model, testloader3, criterion, criterion2, device1, MinLoss, save_path, feat_size=(args.f_size, args.f_size))
             print(MinLoss)
         model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
-        test(-1, model, testloader2, criterion, device1, MinLoss, save_path)
-        # if args.dataset == 'CUB200': num_classes=200
-        # if args.dataset == 'ISIC2017': num_classes=2
-        # metric(model, testloader2, num_classes=num_classes, device=device1)
+        # test(-1, model, testloader2, criterion, device1, MinLoss, save_path)
+        if args.dataset == 'CUB200': num_classes=200
+        if args.dataset == 'ISIC2017': num_classes=3
+        metric(model, testloader2, num_classes=num_classes, device=device1)

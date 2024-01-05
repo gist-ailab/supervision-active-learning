@@ -77,12 +77,17 @@ class ISIC2017_2(Dataset):
         super(ISIC2017_2, self).__init__()
         self.path = path
         self.mode = mode
-        self.classes = {'nv':1, 'mel':0, 'bkl':1}
+        self.classes = {'nv':2, 'mel':0, 'bkl':1}
         self.img_list = glob(os.path.join(self.path, self.mode, 'nv','*'))\
             + glob(os.path.join(self.path, self.mode, 'mel','*'))\
             + glob(os.path.join(self.path, self.mode, 'bkl','*'))
+
+        if self.mode=='train':
+            self.img_list += glob(os.path.join(self.path, 'nv_add', '*'))
+            self.img_list += glob(os.path.join(self.path, 'mel_add', '*'))
+            self.img_list += glob(os.path.join(self.path, 'bkl_add', '*'))
         self.imgt, self.maskt = self.init_transforms()
-            
+        
     def __len__(self):
         return len(self.img_list)
     
@@ -91,17 +96,28 @@ class ISIC2017_2(Dataset):
         img_name = img_path.split('/')[-1].split('.')[0]
         img = Image.open(img_path).convert('RGB')
         label = img_path.split('/')[-2]
-        mask = Image.open(os.path.join(self.path, f'mask_{self.mode}', label, img_name +'_segmentation.png'))
-        # print(label)
+        if '_add' in label:
+            label = label.split('_')[0]
         img = self.imgt(img)
-        mask = self.maskt(mask)
         label = self.classes[label]
-        p1 = random.random()
-        p2 = random.random()
-        if p1 > 0.5 and self.mode=='train':
-            img, mask = F2.hflip(img), F2.hflip(mask)
-        if p2 > 0.5 and self.mode=='train':
-            img, mask = F2.vflip(img), F2.vflip(mask)
+        try:
+            mask = Image.open(os.path.join(self.path, f'mask_{self.mode}', label, img_name +'_segmentation.png'))
+            # print(label)
+            mask = self.maskt(mask)
+            p1 = random.random()
+            p2 = random.random()
+            if p1 > 0.5 and self.mode=='train':
+                img, mask = F2.hflip(img), F2.hflip(mask)
+            if p2 > 0.5 and self.mode=='train':
+                img, mask = F2.vflip(img), F2.vflip(mask)
+        except:
+            mask = -1
+            p1 = random.random()
+            p2 = random.random()
+            if p1 > 0.5 and self.mode=='train':
+                img = F2.hflip(img)
+            if p2 > 0.5 and self.mode=='train':
+                img = F2.vflip(img)
         return img, label, mask, idx
     
     def init_transforms(self):
