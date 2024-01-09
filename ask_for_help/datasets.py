@@ -19,6 +19,7 @@ import copy
 from glob import glob
 import random
 import shutil
+import albumentations as A
 
 class ISIC2017(Dataset):
     def __init__(self, path, mode):
@@ -81,12 +82,11 @@ class ISIC2017_2(Dataset):
         self.img_list = glob(os.path.join(self.path, self.mode, 'nv','*'))\
             + glob(os.path.join(self.path, self.mode, 'mel','*'))\
             + glob(os.path.join(self.path, self.mode, 'bkl','*'))
-
-        if self.mode=='train':
-            self.img_list += glob(os.path.join(self.path, 'nv_add', '*'))
-            self.img_list += glob(os.path.join(self.path, 'mel_add', '*'))
-            self.img_list += glob(os.path.join(self.path, 'bkl_add', '*'))
-        self.imgt, self.maskt = self.init_transforms()
+        # if self.mode=='train':
+        #     self.img_list += glob(os.path.join(self.path, 'nv_add', '*'))
+        #     self.img_list += glob(os.path.join(self.path, 'mel_add', '*'))
+        #     self.img_list += glob(os.path.join(self.path, 'bkl_add', '*'))
+        self.t = self.init_transforms()
         
     def __len__(self):
         return len(self.img_list)
@@ -98,44 +98,26 @@ class ISIC2017_2(Dataset):
         label = img_path.split('/')[-2]
         if '_add' in label:
             label = label.split('_')[0]
-        img = self.imgt(img)
         label = self.classes[label]
         try:
             mask = Image.open(os.path.join(self.path, f'mask_{self.mode}', label, img_name +'_segmentation.png'))
-            # print(label)
-            mask = self.maskt(mask)
-            p1 = random.random()
-            p2 = random.random()
-            if p1 > 0.5 and self.mode=='train':
-                img, mask = F2.hflip(img), F2.hflip(mask)
-            if p2 > 0.5 and self.mode=='train':
-                img, mask = F2.vflip(img), F2.vflip(mask)
+            transformed = self.t(image=img, mask=mask)
+            t_img = transformed['image']
+            t_mask = transformed['mask']
         except:
             mask = -1
-            p1 = random.random()
-            p2 = random.random()
-            if p1 > 0.5 and self.mode=='train':
-                img = F2.hflip(img)
-            if p2 > 0.5 and self.mode=='train':
-                img = F2.vflip(img)
+            transformed = self.t(image=img)
+            t_img = transformed['image']
         return img, label, mask, idx
     
     def init_transforms(self):
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
-
-        img_transform = []
-        mask_transform = []
-        
-        img_transform.append(transforms.Resize((256,256)))
-        img_transform.append(transforms.CenterCrop((224,224)))
-        img_transform.append(transforms.ToTensor())
-        img_transform.append(normalize)
-        
-        mask_transform.append(transforms.Resize((256,256)))
-        mask_transform.append(transforms.CenterCrop((224,224)))
-        mask_transform.append(transforms.ToTensor())
-        
-        return transforms.Compose(img_transform), transforms.Compose(mask_transform)
+        t = A.Compose([
+            A.HorizontalFlip(p=0.5),
+            A.VerticalFlip(p=0.5),
+            A.Rotate(10),
+            A.Normalize()
+        ])
+        return t
 
 class ISIC2017_3(Dataset):
     def __init__(self, path, mode, idx_list=[]):

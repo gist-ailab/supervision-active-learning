@@ -120,6 +120,7 @@ if args.mode=='point':
         if args.dataset == 'CUB200':
             model = init_model(device=device1, num_class=200)
         optimizer = optim.Adam(model.parameters(), args.lr, betas=[args.beta1, args.beta2], eps=1e-8)
+        # optimizer = optim.Adadelta(model.parameters(), rho=0.9, eps=1e-4)
         criterion = nn.CrossEntropyLoss()
         
         # metric(model, testloader2, num_classes=7, device=device1)
