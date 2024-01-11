@@ -19,7 +19,7 @@ import torch.nn as nn
 from torchvision.models.feature_extraction import create_feature_extractor
 
 
-def init_model(device, name='mobilenet', num_class=3):
+def init_model(device, name='efficientnet', num_class=3):
     if name == 'resnet50':
         model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
         model.fc = nn.Linear(2048, num_class)
@@ -45,6 +45,20 @@ def init_model(device, name='mobilenet', num_class=3):
         }
         model = create_feature_extractor(model, return_nodes=return_nodes)
         model = model.to(device)
+
+    if name == 'efficientnet':
+        model = models.efficientnet_b1(weights='DEFAULT')
+        model.classifier = nn.Sequential(
+            nn.Dropout(p=0.2),
+            nn.Linear(in_features=1280, out_features=num_class, bias=True)
+        )
+        return_nodes = {
+            'features':'l4',
+            'classifier':'fc'
+        }
+        model = create_feature_extractor(model, return_nodes=return_nodes)
+        model = model.to(device)
+
     return model
 
 

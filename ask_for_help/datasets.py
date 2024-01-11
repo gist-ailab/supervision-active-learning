@@ -82,11 +82,12 @@ class ISIC2017_2(Dataset):
         self.img_list = glob(os.path.join(self.path, self.mode, 'nv','*'))\
             + glob(os.path.join(self.path, self.mode, 'mel','*'))\
             + glob(os.path.join(self.path, self.mode, 'bkl','*'))
-        # if self.mode=='train':
-        #     self.img_list += glob(os.path.join(self.path, 'nv_add', '*'))
-        #     self.img_list += glob(os.path.join(self.path, 'mel_add', '*'))
-        #     self.img_list += glob(os.path.join(self.path, 'bkl_add', '*'))
+        if self.mode=='train':
+            self.img_list += glob(os.path.join(self.path, 'nv_add', '*'))
+            self.img_list += glob(os.path.join(self.path, 'mel_add', '*'))
+            self.img_list += glob(os.path.join(self.path, 'bkl_add', '*'))
         self.t = self.init_transforms()
+        self.to_tensor = transforms.ToTensor()
         
     def __len__(self):
         return len(self.img_list)
@@ -101,17 +102,25 @@ class ISIC2017_2(Dataset):
         label = self.classes[label]
         try:
             mask = Image.open(os.path.join(self.path, f'mask_{self.mode}', label, img_name +'_segmentation.png'))
+            img = np.array(img)
+            mask = np.array(mask)
             transformed = self.t(image=img, mask=mask)
             t_img = transformed['image']
             t_mask = transformed['mask']
+            t_img = self.to_tensor(t_img)
+            t_mask = self.to_tensor(t_mask)
         except:
-            mask = -1
+            img = np.array(img)
             transformed = self.t(image=img)
             t_img = transformed['image']
-        return img, label, mask, idx
+            t_img = self.to_tensor(t_img)
+            t_mask = -1
+        return t_img, label, t_mask, idx
     
     def init_transforms(self):
         t = A.Compose([
+            A.Resize(256,256),
+            A.CenterCrop(224,224),
             A.HorizontalFlip(p=0.5),
             A.VerticalFlip(p=0.5),
             A.Rotate(10),

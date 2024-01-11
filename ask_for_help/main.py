@@ -22,6 +22,7 @@ parser.add_argument('--dpath1', type=str, default='/ailab_mat/dataset/HAM10000/'
 # parser.add_argument('--dpath2', type=str, default='/home/yunjae_heo/datas/CUB_dataset/datas')
 # parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/CUB200')
 # parser.add_argument('--dataset', type=str, default='CUB200')
+# parser.add_argument('--dpath2', type=str, default='/SSDg/yjh/datas/isic2017/augx60_dataset')
 parser.add_argument('--dpath2', type=str, default='/SSDg/yjh/datas/isic2017/imageFolder')
 parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000')
 parser.add_argument('--dataset', type=str, default='ISIC2017')
@@ -128,7 +129,7 @@ if args.mode=='point':
         for i in range(0, args.epoch2):
             train(i, model, testloader1, criterion, optimizer, device1)
             minLoss = test(i, model, testloader3, criterion, device1, minLoss, save_path)
-        model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
+        # model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
         # test(-1, model, testloader2, criterion, device1, minLoss, save_path)
         if args.dataset == 'CUB200': num_classes=200
         if args.dataset == 'ISIC2017': num_classes=3
