@@ -78,7 +78,7 @@ class ISIC2017_2(Dataset):
         super(ISIC2017_2, self).__init__()
         self.path = path
         self.mode = mode
-        self.classes = {'nv':2, 'mel':0, 'bkl':1}
+        self.classes = {'nv':1, 'mel':0, 'bkl':1}
         self.img_list = glob(os.path.join(self.path, self.mode, 'nv','*'))\
             + glob(os.path.join(self.path, self.mode, 'mel','*'))\
             + glob(os.path.join(self.path, self.mode, 'bkl','*'))
@@ -99,7 +99,7 @@ class ISIC2017_2(Dataset):
         label = img_path.split('/')[-2]
         if '_add' in label:
             label = label.split('_')[0]
-        label = self.classes[label]
+        lbl = self.classes[label]
         try:
             mask = Image.open(os.path.join(self.path, f'mask_{self.mode}', label, img_name +'_segmentation.png'))
             img = np.array(img)
@@ -114,18 +114,27 @@ class ISIC2017_2(Dataset):
             transformed = self.t(image=img)
             t_img = transformed['image']
             t_img = self.to_tensor(t_img)
-            t_mask = -1
-        return t_img, label, t_mask, idx
+            t_mask = torch.zeros([1,224,224])
+        return t_img, lbl, t_mask, idx
     
     def init_transforms(self):
-        t = A.Compose([
-            A.Resize(256,256),
-            A.CenterCrop(224,224),
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.5),
-            A.Rotate(10),
-            A.Normalize()
-        ])
+        if self.mode=='train':
+            t = A.Compose([
+                # A.Resize(256,256),
+                # A.CenterCrop(224,224),
+                A.Resize(224,224),
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.5),
+                A.Rotate((-10,10)),
+                A.Normalize()
+            ])
+        else:
+            t = A.Compose([
+                A.Resize(256,256),
+                A.CenterCrop(224,224),
+                # A.Resize(224,224),
+                A.Normalize()
+            ])
         return t
 
 class ISIC2017_3(Dataset):
