@@ -136,3 +136,7 @@ dmypy.json
 *.meta
 *.tar.gz
 *.txt
+CKDNet*
+EATA*
+fracture_attention*
+Sequential-GCN-*

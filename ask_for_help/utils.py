@@ -11,6 +11,7 @@ import skimage
 from tqdm import tqdm
 import pickle
 from scipy import ndimage
+from sklearn import metrics
 from torchvision.ops import masks_to_boxes
 from kcenterGreedy import kCenterGreedy
 import random
@@ -19,7 +20,7 @@ import torch.nn as nn
 from torchvision.models.feature_extraction import create_feature_extractor
 
 
-def init_model(device, name='efficientnet', num_class=3):
+def init_model(device, name='resnet50', num_class=2):
     if name == 'resnet50':
         model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
         model.fc = nn.Linear(2048, num_class)
@@ -61,6 +62,16 @@ def init_model(device, name='efficientnet', num_class=3):
 
     return model
 
+def one_hot(labels, num_classes=3):
+    one_hot_labels = np.eye(num_classes, dtype=int)[labels]
+    return one_hot_labels
+
+def roc_scores(labels, output_list, num_class=3):
+    one_hot_labels = one_hot(labels, num_class)
+    print(one_hot_labels.shape)
+    print(output_list.shape)
+    roc_score = metrics.roc_auc_score(one_hot_labels, output_list, multi_class='ovr')
+    return roc_score
 
 def collate_fn(batch):
     return tuple(zip(*batch))
@@ -147,13 +158,18 @@ def metric(model, loader, num_classes, device):
     class_AR = dict()
     class_ARoverAP = dict()
     confusion_matrix = torch.zeros([num_classes, num_classes])
+    labels_list = []
+    outputs_list = []
     for i, (imgs, labels, _, _) in enumerate(tqdm(loader)):
         imgs, labels = imgs.to(device), labels.to(device)
         outputs = model(imgs)
         if type(outputs)==dict:
             outputs = outputs['fc']
         _, preds = torch.max(outputs, 1)
-        
+        labels_list.append(np.array(labels.detach().cpu()))
+        outptus = torch.softmax(outputs, dim=-1)
+        outputs_list.append(np.array(outputs.detach().cpu()))
+
         for j in range(len(labels)):
             label = labels[j]
             pred = preds[j]
@@ -166,6 +182,9 @@ def metric(model, loader, num_classes, device):
         class_AP[i] = (100*TP / (TP + FP + 1e-6)).item()
         class_AR[i] = (100*TP / (TP + FN + 1e-6)).item()
         # class_ARoverAP[i] = ((TP + FN) / (TP + FP+1e-6)).item()
+    labels_list = np.concatenate(labels_list, axis=0)
+    outputs_list = np.concatenate(outputs_list, axis=0)
+    auc_scores = roc_scores(labels_list, outputs_list, num_class=3)
     print(confusion_matrix)
     # print(f'Class AP/AR: {class_ARoverAP},\n mAP/mAR : {torch.sum(torch.stack(list(class_ARoverAP.values())))/num_classes}')
     mAP = sum(class_AP.values())/num_classes+1e-6
@@ -173,6 +192,7 @@ def metric(model, loader, num_classes, device):
     print('mAP : ',mAP)
     print('mAR : ', mAR)
     print('F1 : ', 2*(mAP * mAR)/(mAP + mAR))
+    print('AUC Score : ', auc_scores)
 
 def point_regression3(epoch, model, s_loader, criterion, criterion2, optimizer, device, feat_size=(7,7)):
     print('\nEpoch: %d'%epoch)
