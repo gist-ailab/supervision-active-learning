@@ -132,22 +132,25 @@ if args.mode=='point':
     for trial in range(args.num_trial):
         print('Trial : ', trial)
         if args.dataset == 'ISIC2017':
-            model = init_model(device=device1)
+            model = init_model(device=device1, name='resnet18')
         if args.dataset == 'CUB200':
             model = PPM(num_class=200)
             model = model.to(device1)
 
-        optimizer = optim.Adam(model.parameters(), args.lr, betas=[args.beta1, args.beta2], eps=1e-8)
+        optimizer = optim.SGD(model.parameters(), args.lr)
+        # optimizer = optim.Adam(model.parameters(), args.lr, betas=[args.beta1, args.beta2], eps=1e-8)
         criterion = nn.CrossEntropyLoss()
         # criterion2 = nn.CrossEntropyLoss()
         criterion2 = nn.BCELoss()
+        lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.5)
 
         MinLoss = 999
         for i in range(0, args.epoch2):
             position_prediction(i, model, testloader1, criterion, criterion2, optimizer, device1, feat_size=(args.f_size, args.f_size))
             MinLoss = test(i, model, testloader3, criterion, device1, MinLoss, save_path)
             # MinLoss = regression_test3(i, model, testloader3, criterion, criterion2, device1, MinLoss, save_path, feat_size=(args.f_size, args.f_size))
-            print(MinLoss)
+            lr_scheduler.step()
+            # print(MinLoss)
         model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
         # test(-1, model, testloader2, criterion, device1, MinLoss, save_path)
         if args.dataset == 'CUB200': num_classes=200

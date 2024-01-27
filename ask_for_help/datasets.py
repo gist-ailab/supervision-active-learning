@@ -78,7 +78,7 @@ class ISIC2017_2(Dataset):
         super(ISIC2017_2, self).__init__()
         self.path = path
         self.mode = mode
-        self.classes = {'nv':1, 'mel':0, 'bkl':1}
+        self.classes = {'nv':2, 'mel':0, 'bkl':1}
         self.img_list = glob(os.path.join(self.path, self.mode, 'nv','*'))\
             + glob(os.path.join(self.path, self.mode, 'mel','*'))\
             + glob(os.path.join(self.path, self.mode, 'bkl','*'))

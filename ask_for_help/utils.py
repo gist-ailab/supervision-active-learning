@@ -20,10 +20,23 @@ import torch.nn as nn
 from torchvision.models.feature_extraction import create_feature_extractor
 
 
-def init_model(device, name='resnet50', num_class=2):
+def init_model(device, name='resnet50', num_class=3):
     if name == 'resnet50':
         model = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
         model.fc = nn.Linear(2048, num_class)
+        return_nodes = {
+            'layer1':'l1',
+            'layer2':'l2',
+            'layer3':'l3',
+            'layer4':'l4',
+            'fc':'fc'
+        }
+        model = create_feature_extractor(model, return_nodes=return_nodes)
+        model = model.to(device)
+
+    if name == 'resnet18':
+        model = models.resnet18(weights='DEFAULT')
+        model.fc = nn.Linear(512, num_class)
         return_nodes = {
             'layer1':'l1',
             'layer2':'l2',
@@ -105,7 +118,7 @@ def train(epoch, model, loader, criterion, optimizer, device):
     total_acc = 100 * running_acc / total
     print(f'Train epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
 
-def test(epoch, model, loader, criterion, device, minLoss, spath, reg_head=None):
+def test(epoch, model, loader, criterion, device, minLoss, spath, mode):
     print('\nEpoch: %d'%epoch)
     if type(model)==dict:
         model = model['backbone']
@@ -128,26 +141,16 @@ def test(epoch, model, loader, criterion, device, minLoss, spath, reg_head=None)
         total_loss = running_loss / total
         total_acc = 100 * running_acc / total
         print(f'Test epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
-        # if total_acc > bestAcc and epoch!=-1:
-        #     torch.save(model.state_dict(), os.path.join(spath, f'ACC_{total_acc:.2f}.pth'))
-        #     torch.save(model.state_dict(), os.path.join(spath, 'model.pth'))
-        #     if reg_head is not None:
-        #         torch.save(reg_head.state_dict(), os.path.join(spath, f'reg_{total_acc:.2f}.pth'))
-        #         torch.save(reg_head.state_dict(), os.path.join(spath, 'reg_head.pth'))
-        #     return total_acc
-        # else:
-        #     return bestAcc
         if total_loss < minLoss and epoch!=-1:
             torch.save(model.state_dict(), os.path.join(spath, f'ACC_{total_acc:.2f}.pth'))
-            torch.save(model.state_dict(), os.path.join(spath, 'model.pth'))
-            if reg_head is not None:
-                reg_head_state_dict = dict()
-                reg_head_state_dict['l1'] = reg_head[0].state_dict()
-                reg_head_state_dict['l2'] = reg_head[1].state_dict()
-                reg_head_state_dict['l3'] = reg_head[2].state_dict()
-                reg_head_state_dict['l4'] = reg_head[3].state_dict()
-                torch.save(reg_head_state_dict, os.path.join(spath, f'reg_{total_acc:.2f}.pth'))
-                torch.save(reg_head_state_dict, os.path.join(spath, 'reg_head.pth'))
+            if mode=='step1':
+                torch.save(model.state_dict(), os.path.join(spath, 's1_model.pth'))
+            if mode=='step2':
+                torch.save(model.state_dict(), os.path.join(spath, 's2_model.pth'))
+            if mode=='step3':
+                torch.save(model.state_dict(), os.path.join(spath, 's3_model.pth'))
+            else:
+                torch.save(model.state_dict(), os.path.join(spath, 'model.pth'))
             return total_loss
         else:
             return minLoss
@@ -182,6 +185,7 @@ def metric(model, loader, num_classes, device):
         class_AP[i] = (100*TP / (TP + FP + 1e-6)).item()
         class_AR[i] = (100*TP / (TP + FN + 1e-6)).item()
         # class_ARoverAP[i] = ((TP + FN) / (TP + FP+1e-6)).item()
+    # print(labels_list)
     labels_list = np.concatenate(labels_list, axis=0)
     outputs_list = np.concatenate(outputs_list, axis=0)
     auc_scores = roc_scores(labels_list, outputs_list, num_class=3)
@@ -300,6 +304,12 @@ def point_regression3(epoch, model, s_loader, criterion, criterion2, optimizer, 
     print("Total Loss : ", (running_loss1+running_loss2) / total)
     # print("Class Dict : ", class_dict[0], class_dict[1], class_dict[2])
 
+def train_edge_similarity():
+    pass
+
+def wrong_data_correction():
+    pass
+
 def semi_point_prediction(epoch, model, s_loader, criterion, criterion2, optimizer, device, feat_size=(7,7), selected=[]):
     print('\nEpoch: %d'%epoch)
     model.train()
@@ -321,8 +331,7 @@ def semi_point_prediction(epoch, model, s_loader, criterion, criterion2, optimiz
         labels = labels.to(device)
         optimizer.zero_grad()
         outputs = model(inputs)
-
-        if len(outputs.keys())==4:
+        if len(outputs.keys())==5:
             f1 = outputs['l1'] # b,256,56,56
             f2 = outputs['l2'] # b,512,28,28
             f3 = outputs['l3'] # b,1024,14,14
@@ -342,7 +351,7 @@ def semi_point_prediction(epoch, model, s_loader, criterion, criterion2, optimiz
                 f = f.unsqueeze(0)
             f = torch.mean(f, dim=1)
 
-        if len(outputs.keys())==2:
+        elif len(outputs.keys())==2:
             f4 = outputs['l4']
             outputs = outputs['fc']
 
@@ -361,7 +370,7 @@ def semi_point_prediction(epoch, model, s_loader, criterion, criterion2, optimiz
 
         gt_points = []
         for mask, idx, reg_output in zip(masks, indexes, reg_outputs):
-            if idx in selected:
+            if idx in selected and torch.max(mask)!=0:
                 mask = mask.squeeze(0)
                 mask[mask>0]=1.
                 m_point, _ = get_center_box(mask, mode='max')
@@ -399,9 +408,6 @@ def semi_point_prediction(epoch, model, s_loader, criterion, criterion2, optimiz
     print("Loss 1 : ", running_loss1 / total)
     print("Loss 2 : ", running_loss2 / total)
     print("Total Loss : ", (running_loss1+running_loss2) / total)
-
-def self_multimodal_prediction(epoch, model, s_loader, criterions, optimizer, device, feat_size=(7,7)):
-    pass
 
 def regression_test3(epoch, model, loader, criterion, criterion2, device, minLoss, spath, feat_size=(7,7)):
     print('\nEpoch: %d'%epoch)
@@ -510,14 +516,18 @@ def select_wrongs(model, loader, device):
     unselects = []
     model.eval()
     with torch.no_grad():
-        for _, (inputs, labels, _, indexes) in enumerate(tqdm(loader)):
+        for _, (inputs, labels, masks, indexes) in enumerate(tqdm(loader)):
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
             if type(outputs)==dict:
+                f1 = outputs['l1'] # b,256,56,56
+                f2 = outputs['l2'] # b,512,28,28
+                f3 = outputs['l3'] # b,1024,14,14
+                f4 = outputs['l4'] # b,2048,7,7
                 outputs = outputs['fc']
             _, preds = torch.max(outputs, 1)
-            for (pred, label, index) in zip(preds, labels, indexes):
-                if pred.item()!=label.item():
+            for (pred, label, mask, index) in zip(preds, labels, masks, indexes):
+                if pred.item()!=label.item() and torch.max(mask)==1.:
                     selects.append(index)
                 else:
                     unselects.append(index)
