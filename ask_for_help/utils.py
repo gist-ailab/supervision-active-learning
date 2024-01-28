@@ -18,6 +18,7 @@ import random
 import torchvision.models as models
 import torch.nn as nn
 from torchvision.models.feature_extraction import create_feature_extractor
+import PIL.Image as Image
 
 
 def init_model(device, name='resnet50', num_class=3):
@@ -307,7 +308,67 @@ def point_regression3(epoch, model, s_loader, criterion, criterion2, optimizer, 
 def train_edge_similarity():
     pass
 
-def wrong_data_correction():
+def train_mask_similarity(epoch, model, segHead, grad_cam, loader, criterion, criterion2, optimizer, optimizer2,device):
+    # 1. for every batch, generate grad_cam
+    # 2. train segment head with grad_cam pseudo GT
+    print('\nEpoch: %d'%epoch)
+    running_loss1 = 0.0
+    running_loss2 = 0.0
+    running_acc = 0.0
+    total = 0
+    for _, (inputs, labels, _, _) in enumerate(tqdm(loader)):
+        total += inputs.shape[0]
+        inputs, labels = inputs.to(device), labels.to(device)
+        optimizer.zero_grad()
+        optimizer2.zero_grad()
+
+        model.eval()
+        outputs = model(inputs)
+        outputs = outputs['fc']
+        _, preds = torch.max(outputs, 1)
+        heatmap_gt = []
+        for img, pred in zip(inputs, preds):
+            img = img.unsqueeze(0)
+            heatmap = grad_cam(img, pred)
+            heatmap = np.uint8(255 * heatmap)
+            heatmap = Image.fromarray(heatmap).resize((224,224), Image.LANCZOS)
+            heatmap = np.array(heatmap)
+            bn_heatmap = np.float32(heatmap) / 255
+            bn_heatmap[bn_heatmap>0.1] = 1.
+            bn_heatmap[bn_heatmap<0.1] = 0.
+            bn_heatmap = torch.tensor(bn_heatmap)
+            heatmap_gt.append(bn_heatmap)
+        heatmap_gt = torch.stack(heatmap_gt)
+        heatmap_gt = heatmap_gt.to(device)
+
+        model.train()
+        outputs = model(inputs)
+        f1 = outputs['l1'] # b,256,56,56
+        f2 = outputs['l2'] # b,512,28,28
+        f3 = outputs['l3'] # b,1024,14,14
+        f4 = outputs['l4'] # b,2048,7,7
+        outputs = outputs['fc']
+        _, pred = torch.max(outputs, 1)
+        running_acc += (pred == labels).sum().item()
+        loss1 = criterion(outputs, labels)
+
+        seg_outputs = segHead(f1,f2,f3,f4)
+        loss2 = criterion2(seg_outputs, heatmap_gt)
+
+        loss = loss1 + loss2
+        loss.backward()
+        optimizer.step()
+        optimizer2.step()
+        running_loss1 += loss1.item()
+        running_loss2 += loss2.item()
+    total_acc = 100 * running_acc / total
+    print("Total : ", total)
+    print("Acc : ", total_acc)
+    print("Loss 1 : ", running_loss1 / total)
+    print("Loss 2 : ", running_loss2 / total)
+    print("Total Loss : ", (running_loss1+running_loss2) / total)
+
+def wrong_data_correction(epoch, model, s_loader, criterion, optimizer, device, feat_size=(7,7)):
     pass
 
 def semi_point_prediction(epoch, model, s_loader, criterion, criterion2, optimizer, device, feat_size=(7,7), selected=[]):
