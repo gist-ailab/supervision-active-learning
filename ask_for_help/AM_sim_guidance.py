@@ -27,8 +27,8 @@ parser.add_argument('--dpath2', type=str, default='/SSDg/yjh/datas/isic2017/imag
 parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000')
 parser.add_argument('--dataset', type=str, default='ISIC2017')
 parser.add_argument('--epoch1', type=int, default=10)
-parser.add_argument('--epoch2', type=int, default=10)
-parser.add_argument('--epoch3', type=int, default=10)
+parser.add_argument('--epoch2', type=int, default=20)
+parser.add_argument('--epoch3', type=int, default=20)
 parser.add_argument('--batch', type=int, default=32)
 parser.add_argument('--lr1', type=float, default=1e-4)
 parser.add_argument('--lr2', type=float, default=1e-5)
@@ -95,26 +95,28 @@ if args.dataset == 'ISIC2017':
 
         # Mask Similarity
         print("STEP 2 ---------------------------------------------------------------------")
-        for name, para in model.named_paramters():
-            para.requires_grad = False
-            if 'fc' in name:
-                para.requires_grad = True
-        optimizer = optim.Adam(model.fc.parameters(), args.lr2, betas=[args.beta1, args.beta2], eps=1e-8)
+        # for name, para in model.named_parameters():
+        #     para.requires_grad = False
+        #     if 'fc' in name:
+        #         para.requires_grad = True
+        # optimizer = optim.Adam(model.fc.parameters(), args.lr2, betas=[args.beta1, args.beta2], eps=1e-8)
 
         segHead = seghead(num_classes=1, model_name='resnet50')
         segHead = segHead.to(device1)
-        criterion2 = nn.BCELoss()
-        optimizer2 = optim.Adam(segHead.parameters(), args.lr2, betas=[args.beta1, args.beta2], eps=1e-8)
+        # criterion2 = nn.BCELoss()
+        criterion2 = nn.MSELoss()
+        optimizer2 = optim.Adam(segHead.parameters(), args.lr2*10, betas=[args.beta1, args.beta2], eps=1e-8)
 
         model.eval()
         target_layer = model.layer4.get_submodule('2').conv3.eval()
         grad_cam = GradCAM(model, target_layer)
+        grad_cam.model.eval()
 
         s2_minloss = 999
         for i in range(0, args.epoch2):
             # train_edge_similarity()
             train_mask_similarity(i, model, segHead, grad_cam, testloader1, criterion, criterion2, optimizer, optimizer2, device1)
-            s2_minloss = test(i, model, testloader3, criterion, device1, s2_minloss, save_path, mode='step2')
+            s2_minloss = test(i, model, testloader3, criterion, device1, s2_minloss, save_path, mode='step2', submodule=segHead)
         model.load_state_dict(torch.load(os.path.join(save_path, 's2_model.pth')))
         num_classes=3
         metric(model, testloader2, num_classes=num_classes, device=device1)

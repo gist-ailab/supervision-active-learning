@@ -119,7 +119,7 @@ def train(epoch, model, loader, criterion, optimizer, device):
     total_acc = 100 * running_acc / total
     print(f'Train epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
 
-def test(epoch, model, loader, criterion, device, minLoss, spath, mode):
+def test(epoch, model, loader, criterion, device, minLoss, spath, mode, submodule=None):
     print('\nEpoch: %d'%epoch)
     if type(model)==dict:
         model = model['backbone']
@@ -148,8 +148,12 @@ def test(epoch, model, loader, criterion, device, minLoss, spath, mode):
                 torch.save(model.state_dict(), os.path.join(spath, 's1_model.pth'))
             if mode=='step2':
                 torch.save(model.state_dict(), os.path.join(spath, 's2_model.pth'))
+                if submodule != None:
+                    torch.save(submodule.state_dict(), os.path.join(spath, 's2_submodule.pth'))
             if mode=='step3':
                 torch.save(model.state_dict(), os.path.join(spath, 's3_model.pth'))
+                if submodule != None:
+                    torch.save(submodule.state_dict(), os.path.join(spath, 's3_submodule.pth'))
             else:
                 torch.save(model.state_dict(), os.path.join(spath, 'model.pth'))
             return total_loss
@@ -316,6 +320,7 @@ def train_mask_similarity(epoch, model, segHead, grad_cam, loader, criterion, cr
     running_loss2 = 0.0
     running_acc = 0.0
     total = 0
+    count = 0
     for _, (inputs, labels, _, _) in enumerate(tqdm(loader)):
         total += inputs.shape[0]
         inputs, labels = inputs.to(device), labels.to(device)
@@ -331,13 +336,27 @@ def train_mask_similarity(epoch, model, segHead, grad_cam, loader, criterion, cr
             img = img.unsqueeze(0)
             heatmap = grad_cam(img, pred)
             heatmap = np.uint8(255 * heatmap)
-            heatmap = Image.fromarray(heatmap).resize((224,224), Image.LANCZOS)
+            heatmap = Image.fromarray(heatmap).resize((56,56), Image.LANCZOS)
             heatmap = np.array(heatmap)
             bn_heatmap = np.float32(heatmap) / 255
             bn_heatmap[bn_heatmap>0.1] = 1.
             bn_heatmap[bn_heatmap<0.1] = 0.
+            if epoch<=1 and count<1:
+                with open('/SSDg/yjh/workspace/supervision-active-learning/bn_heatmap.npy', 'wb') as f:
+                    print(np.max(bn_heatmap))
+                    print(np.min(bn_heatmap))
+                    np.save(f, bn_heatmap)
+
             bn_heatmap = torch.tensor(bn_heatmap)
             heatmap_gt.append(bn_heatmap)
+            if epoch<=1 and count<1:
+                with open('/SSDg/yjh/workspace/supervision-active-learning/heatmap.npy', 'wb') as f:
+                    print(np.max(heatmap))
+                    print(np.min(heatmap))
+                    np.save(f, heatmap)
+                count += 1
+                print('count',count)
+                
         heatmap_gt = torch.stack(heatmap_gt)
         heatmap_gt = heatmap_gt.to(device)
 
@@ -354,13 +373,16 @@ def train_mask_similarity(epoch, model, segHead, grad_cam, loader, criterion, cr
 
         seg_outputs = segHead(f1,f2,f3,f4)
         loss2 = criterion2(seg_outputs, heatmap_gt)
-
         loss = loss1 + loss2
+        # loss = loss1
+
         loss.backward()
-        optimizer.step()
+        if epoch > 5:
+            optimizer.step()
         optimizer2.step()
         running_loss1 += loss1.item()
         running_loss2 += loss2.item()
+
     total_acc = 100 * running_acc / total
     print("Total : ", total)
     print("Acc : ", total_acc)

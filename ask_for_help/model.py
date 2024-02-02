@@ -127,13 +127,21 @@ class ICICNet(torch.nn.Module): # intra class consistency and inter class discri
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(ConvBlock, self).__init__()
+        # self.conv = nn.Sequential(
+        #     nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+        #     nn.BatchNorm2d(out_channels),
+        #     nn.ReLU(inplace=True),
+        #     nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+        #     nn.BatchNorm2d(out_channels),
+        #     nn.ReLU(inplace=True)
+        # )
         self.conv = nn.Sequential(
+            nn.BatchNorm2d(in_channels),
+            nn.ReLU(inplace=True),
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
         )
 
     def forward(self, x):
@@ -157,42 +165,32 @@ class seghead(torch.nn.Module):
             self.conv2 = ConvBlock(1024, 512)
             self.up3 = UpConv(512, 256)
             self.conv3 = ConvBlock(512, 256)
-            self.up4 = UpConv(256, 128)
-            self.conv4 = ConvBlock(128, 128)
-            self.up5 = UpConv(128, 64)
-            self.conv5 = ConvBlock(64, 64)
 
-            self.final = nn.Conv2d(64, num_classes, kernel_size=1)
+            self.final = nn.Conv2d(256, num_classes, kernel_size=1)
             if num_classes == 1: self.normalize = nn.Sigmoid()
             else: self.normalize = nn.Softmax(dim=1)
 
     def forward(self, d1, d2, d3, d4):
         # x : input batch
-        # d1 : outputs of backbone layer1
-        # d2 : outputs of backbone layer2
-        # d3 : outputs of backbone layer3
-        # d4 : outputs of backbone layer4
+        # d1 : outputs of backbone layer1 : 256, 56, 56
+        # d2 : outputs of backbone layer2 : 512, 28, 28
+        # d3 : outputs of backbone layer3 : 1024, 14, 14
+        # d4 : outputs of backbone layer4 : 2048, 7, 7
 
         # 디코더 + 스킵 연결
-        u1 = self.up1(d4)
-        u1 = torch.cat((u1, d3), dim=1)
-        u1 = self.conv1(u1)
+        u1 = self.up1(d4) # 1024, 14, 14
+        u11 = torch.cat((u1, d3), dim=1) # 2048, 14, 14
+        u1 = self.conv1(u11) + u1 # 1024, 14, 14 
 
         u2 = self.up2(u1)
-        u2 = torch.cat((u2, d2), dim=1)
-        u2 = self.conv2(u2)
+        u22 = torch.cat((u2, d2), dim=1)
+        u2 = self.conv2(u22) + u2
 
         u3 = self.up3(u2)
-        u3 = torch.cat((u3, d1), dim=1)
-        u3 = self.conv3(u3)
+        u33 = torch.cat((u3, d1), dim=1)
+        u3 = self.conv3(u33) + u3
 
-        u4 = self.up4(u3)
-        u4 = self.conv4(u4)
-
-        u5 = self.up5(u4)
-        u5 = self.conv5(u5)
-
-        out = self.final(u5)
+        out = self.final(u3)
         out = self.normalize(out)
         out = out.squeeze()
         # 최종 출력
