@@ -119,6 +119,57 @@ def train(epoch, model, loader, criterion, optimizer, device):
     total_acc = 100 * running_acc / total
     print(f'Train epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
 
+def train_seg(epoch, model, teacher, loader, criterion1, criterion2, optimizer, device):
+    print('\nEpoch: %d'%epoch) 
+    model.train()
+    teacher.eval()
+    running_loss = 0.0
+    total = 0
+    for _, (inputs, _, masks, _) in enumerate(tqdm(loader)):
+        inputs, masks = inputs.to(device), masks.to(device)
+        optimizer.zero_grad()
+        f1, f2, f3, f4, _ = teacher(inputs)
+        _, _, _, _, outputs = model(inputs, f1, f2, f3, f4)
+        
+        total += outputs.size(0)
+        loss1= criterion1(outputs, masks)
+        loss2 = criterion2(outputs, masks)
+        loss = loss1 + loss2
+
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
+    total_loss = running_loss / total
+    print(f'Train epoch : {epoch} loss : {total_loss}')
+
+def train_csc(epoch, model, teacher1, teacher2, loader, criterion1, optimizer, device):
+    print('\nEpoch: %d'%epoch)
+    model.train()
+    teacher.eval()
+    running_loss = 0.0
+    running_acc = 0.0
+    total = 0
+    for _, (inputs, labels, masks, _) in enumerate(tqdm(loader)):
+        inputs, labels = inputs.to(device), labels.to(device)
+        optimizer.zero_grad()
+        outputs = model(inputs)
+       
+        cf1, cf2, cf3, cf4, _ = teacher1(inputs)
+        sf1, sf2, sf3, sf4, _ = teacher2(inputs, cf1, cf2, cf3, cf4)
+        _, _, _, _, outputs = model(inputs, sf1, sf2, sf3, sf4)
+        _, pred = torch.max(outputs, 1)
+        total += outputs.size(0)
+        running_acc += (pred == labels).sum().item()
+        outputs = outputs.float()
+        loss = criterion1(outputs, labels)
+
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
+    total_loss = running_loss / total
+    total_acc = 100 * running_acc / total
+    print(f'Train epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
+
 def test(epoch, model, loader, criterion, device, minLoss, spath, mode, submodule=None):
     print('\nEpoch: %d'%epoch)
     if type(model)==dict:
@@ -142,6 +193,86 @@ def test(epoch, model, loader, criterion, device, minLoss, spath, mode, submodul
         total_loss = running_loss / total
         total_acc = 100 * running_acc / total
         print(f'Test epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
+        if total_loss < minLoss and epoch!=-1:
+            torch.save(model.state_dict(), os.path.join(spath, f'ACC_{total_acc:.2f}.pth'))
+            if mode=='step1':
+                torch.save(model.state_dict(), os.path.join(spath, 's1_model.pth'))
+            if mode=='step2':
+                torch.save(model.state_dict(), os.path.join(spath, 's2_model.pth'))
+                if submodule != None:
+                    torch.save(submodule.state_dict(), os.path.join(spath, 's2_submodule.pth'))
+            if mode=='step3':
+                torch.save(model.state_dict(), os.path.join(spath, 's3_model.pth'))
+                if submodule != None:
+                    torch.save(submodule.state_dict(), os.path.join(spath, 's3_submodule.pth'))
+            else:
+                torch.save(model.state_dict(), os.path.join(spath, 'model.pth'))
+            return total_loss
+        else:
+            return minLoss
+
+def test_seg(epoch, model, teacher, loader, criterion1, criterion2, device, minLoss, spath, mode, submodule=None):
+    print('\nEpoch: %d'%epoch)
+    model.eval()
+    teacher.eval()
+    running_loss = 0.0
+    total = 0
+    with torch.no_grad():
+        for _, (inputs, _, masks, _) in enumerate(tqdm(loader)):
+            inputs, masks = inputs.to(device), masks.to(device)
+            f1, f2, f3, f4, _ = teacher(inputs)
+            _, _, _, _, outputs = model(inputs, f1, f2, f3, f4)
+            total += outputs.size(0)
+            loss1= criterion1(outputs, masks)
+            loss2 = criterion2(outputs, masks)
+            loss = loss1 + loss2
+            running_loss += loss.item()
+        total_loss = running_loss / total
+        print(f'Test epoch : {epoch} loss : {total_loss}')
+
+        if total_loss < minLoss and epoch!=-1:
+            torch.save(model.state_dict(), os.path.join(spath, f'ACC_{total_acc:.2f}.pth'))
+            if mode=='step1':
+                torch.save(model.state_dict(), os.path.join(spath, 's1_segmodel.pth'))
+            if mode=='step2':
+                torch.save(model.state_dict(), os.path.join(spath, 's2_segmodel.pth'))
+                if submodule != None:
+                    torch.save(submodule.state_dict(), os.path.join(spath, 's2_submodule.pth'))
+            if mode=='step3':
+                torch.save(model.state_dict(), os.path.join(spath, 's3_segmodel.pth'))
+                if submodule != None:
+                    torch.save(submodule.state_dict(), os.path.join(spath, 's3_submodule.pth'))
+            else:
+                torch.save(model.state_dict(), os.path.join(spath, 'segmodel.pth'))
+            return total_loss
+        else:
+            return minLoss
+
+def test_csc(epoch, model, teacher1, teacher2, loader, criterion1, device, minLoss, spath, mode, submodule=None):
+    print('\nEpoch: %d'%epoch)
+    model.eval()
+    teacher1.eval()
+    teacher2.eval()
+    running_loss = 0.0
+    running_acc = 0.0
+    total = 0
+    with torch.no_grad():
+        for _, (inputs, _, masks, _) in enumerate(tqdm(loader)):
+            inputs, masks = inputs.to(device), masks.to(device)
+            f1, f2, f3, f4, _ = teacher1(inputs)
+            f1, f2, f3, f4, sout = teacher2(inputs, f1, f2, f3, f4)
+            inputs_cat = torch.concat((inputs, sout), 1)
+            outputs = model(inputs_cat, f1, f2, f3, f4)
+            _, pred = torch.max(outputs, 1)
+            total += outputs.size(0)
+            running_acc += (pred == labels).sum().item()
+            outputs = outputs.float()
+            loss = criterion1(outputs, labels)
+            running_loss += loss.item()
+        total_loss = running_loss / total
+        total_acc = 100 * running_acc / total
+        print(f'Test epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
+        
         if total_loss < minLoss and epoch!=-1:
             torch.save(model.state_dict(), os.path.join(spath, f'ACC_{total_acc:.2f}.pth'))
             if mode=='step1':
@@ -191,9 +322,9 @@ def metric(model, loader, num_classes, device):
         class_AR[i] = (100*TP / (TP + FN + 1e-6)).item()
         # class_ARoverAP[i] = ((TP + FN) / (TP + FP+1e-6)).item()
     # print(labels_list)
-    labels_list = np.concatenate(labels_list, axis=0)
-    outputs_list = np.concatenate(outputs_list, axis=0)
-    auc_scores = roc_scores(labels_list, outputs_list, num_class=3)
+    # labels_list = np.concatenate(labels_list, axis=0)
+    # outputs_list = np.concatenate(outputs_list, axis=0)
+    # auc_scores = roc_scores(labels_list, outputs_list, num_class=3)
     print(confusion_matrix)
     # print(f'Class AP/AR: {class_ARoverAP},\n mAP/mAR : {torch.sum(torch.stack(list(class_ARoverAP.values())))/num_classes}')
     mAP = sum(class_AP.values())/num_classes+1e-6
@@ -201,7 +332,7 @@ def metric(model, loader, num_classes, device):
     print('mAP : ',mAP)
     print('mAR : ', mAR)
     print('F1 : ', 2*(mAP * mAR)/(mAP + mAR))
-    print('AUC Score : ', auc_scores)
+    # print('AUC Score : ', auc_scores)
 
 def point_regression3(epoch, model, s_loader, criterion, criterion2, optimizer, device, feat_size=(7,7)):
     print('\nEpoch: %d'%epoch)
@@ -321,44 +452,45 @@ def train_mask_similarity(epoch, model, segHead, grad_cam, loader, criterion, cr
     running_acc = 0.0
     total = 0
     count = 0
-    for _, (inputs, labels, _, _) in enumerate(tqdm(loader)):
+    for _, (inputs, labels, masks, _) in enumerate(tqdm(loader)):
         total += inputs.shape[0]
         inputs, labels = inputs.to(device), labels.to(device)
+        masks = masks.squeeze().to(device)
         optimizer.zero_grad()
         optimizer2.zero_grad()
 
-        model.eval()
-        outputs = model(inputs)
-        outputs = outputs['fc']
-        _, preds = torch.max(outputs, 1)
-        heatmap_gt = []
-        for img, pred in zip(inputs, preds):
-            img = img.unsqueeze(0)
-            heatmap = grad_cam(img, pred)
-            heatmap = np.uint8(255 * heatmap)
-            heatmap = Image.fromarray(heatmap).resize((56,56), Image.LANCZOS)
-            heatmap = np.array(heatmap)
-            bn_heatmap = np.float32(heatmap) / 255
-            bn_heatmap[bn_heatmap>0.1] = 1.
-            bn_heatmap[bn_heatmap<0.1] = 0.
-            if epoch<=1 and count<1:
-                with open('/SSDg/yjh/workspace/supervision-active-learning/bn_heatmap.npy', 'wb') as f:
-                    print(np.max(bn_heatmap))
-                    print(np.min(bn_heatmap))
-                    np.save(f, bn_heatmap)
+        # model.eval()
+        # outputs = model(inputs)
+        # outputs = outputs['fc']
+        # _, preds = torch.max(outputs, 1)
+        # heatmap_gt = []
+        # for img, pred in zip(inputs, preds):
+        #     img = img.unsqueeze(0)
+        #     heatmap = grad_cam(img, pred)
+        #     heatmap = np.uint8(255 * heatmap)
+        #     heatmap = Image.fromarray(heatmap).resize((56,56), Image.LANCZOS)
+        #     heatmap = np.array(heatmap)
+        #     bn_heatmap = np.float32(heatmap) / 255
+        #     bn_heatmap[bn_heatmap>0.1] = 1.
+        #     bn_heatmap[bn_heatmap<0.1] = 0.
+        #     if epoch<=1 and count<1:
+        #         with open('/SSDg/yjh/workspace/supervision-active-learning/bn_heatmap.npy', 'wb') as f:
+        #             print(np.max(bn_heatmap))
+        #             print(np.min(bn_heatmap))
+        #             np.save(f, bn_heatmap)
 
-            bn_heatmap = torch.tensor(bn_heatmap)
-            heatmap_gt.append(bn_heatmap)
-            if epoch<=1 and count<1:
-                with open('/SSDg/yjh/workspace/supervision-active-learning/heatmap.npy', 'wb') as f:
-                    print(np.max(heatmap))
-                    print(np.min(heatmap))
-                    np.save(f, heatmap)
-                count += 1
-                print('count',count)
+        #     bn_heatmap = torch.tensor(bn_heatmap)
+        #     heatmap_gt.append(bn_heatmap)
+        #     if epoch<=1 and count<1:
+        #         with open('/SSDg/yjh/workspace/supervision-active-learning/heatmap.npy', 'wb') as f:
+        #             print(np.max(heatmap))
+        #             print(np.min(heatmap))
+        #             np.save(f, heatmap)
+        #         count += 1
+        #         print('count',count)
                 
-        heatmap_gt = torch.stack(heatmap_gt)
-        heatmap_gt = heatmap_gt.to(device)
+        # heatmap_gt = torch.stack(heatmap_gt)
+        # heatmap_gt = heatmap_gt.to(device)
 
         model.train()
         outputs = model(inputs)
@@ -372,13 +504,17 @@ def train_mask_similarity(epoch, model, segHead, grad_cam, loader, criterion, cr
         loss1 = criterion(outputs, labels)
 
         seg_outputs = segHead(f1,f2,f3,f4)
-        loss2 = criterion2(seg_outputs, heatmap_gt)
+        if len(seg_outputs.shape)==4:
+            seg_outputs = torch.stack([seg_outputs[i,labels[i],:,:] for i in range(seg_outputs.shape[0])])
+        loss2 = criterion2(seg_outputs, masks)
+        # loss2 = criterion2(seg_outputs, heatmap_gt)
         loss = loss1 + loss2
         # loss = loss1
 
         loss.backward()
-        if epoch > 5:
-            optimizer.step()
+        # if epoch > 20:
+        #     optimizer.step()
+        optimizer.step()
         optimizer2.step()
         running_loss1 += loss1.item()
         running_loss2 += loss2.item()

@@ -61,10 +61,6 @@ if not os.path.isdir(save_path):
     os.mkdir(save_path)
 
 if args.dataset == 'ISIC2017':
-    trainset = HAM10000_origin(args.dpath1, mode='train') # 10015
-    print('Num trainset : ', len(trainset))
-    validset = HAM10000_origin(args.dpath1, mode='test') # 1511
-    print('Num validset : ', len(validset))
     testset1 = ISIC2017_2(args.dpath2, mode='train') # 750
     print('Num testset1 : ', len(testset1))
     testset2 = ISIC2017_2(args.dpath2, mode='test') # 600
@@ -72,66 +68,59 @@ if args.dataset == 'ISIC2017':
     testset3 = ISIC2017_2(args.dpath2, mode='val') # 150
     print('Num testset3 : ', len(testset3))
     
-    trainloader = DataLoader(trainset, args.batch, shuffle=True, num_workers=4)
-    valloader = DataLoader(validset, args.batch, shuffle=False, num_workers=4)
     testloader1 = DataLoader(testset1, args.batch, shuffle=True, num_workers=4)
     testloader2 = DataLoader(testset2, args.batch, shuffle=False, num_workers=4)
     testloader3 = DataLoader(testset3, args.batch, shuffle=False, num_workers=4)
 
     for trial in range(args.num_trial):
-        model = init_model(device=device1, name='resnet50')
-        optimizer = optim.Adam(model.parameters(), args.lr1, betas=[args.beta1, args.beta2], eps=1e-8)
-        criterion = nn.CrossEntropyLoss()
-        
-        # Train Backbone
         print("STEP 1 ---------------------------------------------------------------------")
+        # Train Root Classification Model for Generate Grad-CAM pseudo Label
+        cls1_model = CSC_cls1(num_clss=2, model_name='resnet50')
+        optimizer1 = optim.Adam(cls1_model.parameters(), args.lr1, betas=[args.beta1, args.beta2], eps=1e-8)
+        criterion1 = nn.CrossEntropyLoss()
         s1_minloss = 999
         for i in range(0, args.epoch1):
-            train(i, model, testloader1, criterion, optimizer, device1)
-            s1_minloss = test(i, model, testloader3, criterion, device1, s1_minloss, save_path, mode='step1')
-        model.load_state_dict(torch.load(os.path.join(save_path, 's1_model.pth')))
+            train(i, cls1_model, testloader1, criterion1, optimizer1, device1)
+            s1_minloss = test(i, cls1_model, testloader3, criterion1, device1, s1_minloss, save_path, mode='step1')
+        cls1_model.load_state_dict(torch.load(os.path.join(save_path, 's1_model.pth')))
         num_classes=2
-        metric(model, testloader2, num_classes=num_classes, device=device1)
+        # metric(cls1_model, testloader2, num_classes=num_classes, device=device1)
+        test(-1, cls1_model, testloader2, criterion1, device1, s1_minloss, save_path, mode='step1')
 
-        # Mask Similarity
         print("STEP 2 ---------------------------------------------------------------------")
-        # for name, para in model.named_parameters():
-        #     para.requires_grad = False
-        #     if 'fc' in name:
-        #         para.requires_grad = True
-        # optimizer = optim.Adam(model.fc.parameters(), args.lr2, betas=[args.beta1, args.beta2], eps=1e-8)
+        # Select Wrongly Predicted Data
+        
+        # Train Seg Model
+        for para in cls1_model.parameters():
+            para.requires_grad = False
 
-        segHead = seghead(num_classes=2, model_name='resnet50')
-        segHead = segHead.to(device1)
-        criterion2 = nn.BCELoss()
-        # criterion2 = nn.MSELoss()
-        optimizer2 = optim.Adam(segHead.parameters(), args.lr2, betas=[args.beta1, args.beta2], eps=1e-8)
-
-        model.eval()
-        target_layer = model.layer4.get_submodule('2').conv3.eval()
-        grad_cam = GradCAM(model, target_layer)
-        grad_cam.model.eval()
-
+        seg_model = CSC_seg(num_class=1, model_name='resnet50')
+        optimizer2 = optim.Adam(seg_model.parameters(), args.lr2, betas=[args.beta1, args.beta2], eps=1e-8)
+        criterion2 = ''
+        criterion3 = ''
         s2_minloss = 999
         for i in range(0, args.epoch2):
-            # train_edge_similarity()
-            train_mask_similarity(i, model, segHead, grad_cam, testloader1, criterion, criterion2, optimizer, optimizer2, device1)
-            s2_minloss = test(i, model, testloader3, criterion, device1, s2_minloss, save_path, mode='step2', submodule=segHead)
-        model.load_state_dict(torch.load(os.path.join(save_path, 's2_model.pth')))
-        num_classes=2
-        metric(model, testloader2, num_classes=num_classes, device=device1)
+            train_seg(i, seg_model, cls1_model, loader, criterion2, criterion3, optimizer2, device1)
+            s2_minloss = test_seg(i, seg_model, cls1_model, loader, criterion2, criterion3, device1, s2_minloss, save_path, mode='step2')
+        seg_model.load_state_dict(torch.load(os.path.join(save_path, 's2_segmodel.pth')))
 
-        # Wrong Data Correction
         print("STEP 3 ---------------------------------------------------------------------")
-        # for para in model.parameters():
-        #     para.requires_grad = True
-        # optimizer = optim.Adam(model.parameters(), args.lr3, betas=[args.beta1, args.beta2], eps=1e-8)
-        # selects, unselects = select_wrongs(model, testloader1, device1)
+        # Train Cls2 Model
+        for para in cls1_model.parameters():
+            para.requires_grad = False
+
+        for para in seg_model.parameters():
+            para.requires_grad = False
         
-        # s3_minloss = 999
-        # for i in range(0, args.epoch2):
-        #     wrong_data_correction()
-        #     s3_minloss = test(i, model, testloader3, criterion, device1, s3_minloss, save_path, mode='step3')
-        # model.load_state_dict(torch.load(os.path.join(save_path, 's3_model.pth')))
-        # num_classes=3
-        # metric(model, testloader2, num_classes=num_classes, device=device1)
+        cls2_model = CSC_cls2(num_class=2, model_name='resnet50')
+        optimizer3 = optim.Adam(cls2_model.parameters(), args.lr3, betas=[args.beta1, args.beta2], eps=1e-8)
+        criterion1 = nn.CrossEntropyLoss()
+        s3_minloss = 999
+        for i in range(0, args.epoch2):
+            train_csc(i, cls2_model, cls1_model, seg_model, loader, criterion1, optimizer3, device1)
+            s3_minloss = test_csc(i, cls2_model, cls1_model, seg_model, loader, criterion1, device1, s3_minloss, save_path, mode='step3')
+        cls2_model.load_state_dict(torch.load(os.path.join(save_path, 's3_model.pth')))
+        # Eval Seg Model
+        num_classes=2
+        # metric(cls2_model, testloader2, num_classes=num_classes, device=device1)
+        test(-1, cls2_model, cls1_model, seg_model, testloader2, criterion1, device1, s1_minloss, save_path, mode='step3')

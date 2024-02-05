@@ -78,14 +78,14 @@ class ISIC2017_2(Dataset):
         super(ISIC2017_2, self).__init__()
         self.path = path
         self.mode = mode
-        self.classes = {'nv':2, 'mel':0, 'bkl':1}
+        self.classes = {'nv':1, 'mel':0, 'bkl':1}
         self.img_list = glob(os.path.join(self.path, self.mode, 'nv','*'))\
             + glob(os.path.join(self.path, self.mode, 'mel','*'))\
             + glob(os.path.join(self.path, self.mode, 'bkl','*'))
-        if self.mode=='train':
-            self.img_list += glob(os.path.join(self.path, 'nv_add', '*'))
-            self.img_list += glob(os.path.join(self.path, 'mel_add', '*'))
-            self.img_list += glob(os.path.join(self.path, 'bkl_add', '*'))
+        # if self.mode=='train':
+        #     self.img_list += glob(os.path.join(self.path, 'nv_add', '*'))
+        #     self.img_list += glob(os.path.join(self.path, 'mel_add', '*'))
+        #     self.img_list += glob(os.path.join(self.path, 'bkl_add', '*'))
         self.t = self.init_transforms()
         self.to_tensor = transforms.ToTensor()
         
@@ -109,12 +109,13 @@ class ISIC2017_2(Dataset):
             t_mask = transformed['mask']
             t_img = self.to_tensor(t_img)
             t_mask = self.to_tensor(t_mask)
+            t_mask = F.interpolate(t_mask, size=[56,56], mode='bilinear')
         except:
             img = np.array(img)
             transformed = self.t(image=img)
             t_img = transformed['image']
             t_img = self.to_tensor(t_img)
-            t_mask = torch.zeros([1,224,224])
+            t_mask = torch.zeros([1,56,56])
         return t_img, lbl, t_mask, idx
     
     def init_transforms(self):
