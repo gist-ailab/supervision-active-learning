@@ -109,24 +109,24 @@ class ISIC2017_2(Dataset):
             t_mask = transformed['mask']
             t_img = self.to_tensor(t_img)
             t_mask = self.to_tensor(t_mask)
-            t_mask = F.interpolate(t_mask, size=[56,56], mode='bilinear')
+            # t_mask = F.interpolate(t_mask, size=[56,56], mode='bilinear')
         except:
             img = np.array(img)
             transformed = self.t(image=img)
             t_img = transformed['image']
             t_img = self.to_tensor(t_img)
-            t_mask = torch.zeros([1,56,56])
+            # t_mask = torch.zeros([1,56,56])
         return t_img, lbl, t_mask, idx
     
     def init_transforms(self):
         if self.mode=='train':
             t = A.Compose([
-                # A.Resize(256,256),
-                # A.CenterCrop(224,224),
-                A.Resize(224,224),
+                A.Resize(256,256),
+                A.CenterCrop(224,224),
+                # A.Resize(224,224),
                 A.HorizontalFlip(p=0.5),
                 A.VerticalFlip(p=0.5),
-                A.Rotate((-10,10)),
+                A.Rotate((-90,90)),
                 A.Normalize()
             ])
         else:

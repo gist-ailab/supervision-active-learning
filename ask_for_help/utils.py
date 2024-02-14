@@ -90,6 +90,13 @@ def roc_scores(labels, output_list, num_class=3):
 def collate_fn(batch):
     return tuple(zip(*batch))
 
+def dice_loss(pred, target, smooth=1e-5):
+    intersection = (pred*target).sum(dim=(2,3))
+    union = pred.sum(dim=(2,3)) + target.sum(dim=(2,3))
+    dice = 2.0 * (intersection+smooth) / (union+smooth)
+    dice_loss = 1.0 - dice
+    return dice_loss
+
 def train(epoch, model, loader, criterion, optimizer, device):
     print('\nEpoch: %d'%epoch)
     if type(model)==dict:
@@ -103,7 +110,7 @@ def train(epoch, model, loader, criterion, optimizer, device):
     for _, (inputs, labels, _, _) in enumerate(tqdm(loader)):
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
-        outputs = model(inputs)
+        _, _, _, _, outputs = model(inputs)
         if type(outputs)==dict:
             outputs = outputs['fc']
         
@@ -132,10 +139,10 @@ def train_seg(epoch, model, teacher, loader, criterion1, criterion2, optimizer, 
         _, _, _, _, outputs = model(inputs, f1, f2, f3, f4)
         
         total += outputs.size(0)
-        loss1= criterion1(outputs, masks)
-        loss2 = criterion2(outputs, masks)
+        loss1 = torch.mean(criterion1(outputs, masks))
+        loss2 = torch.mean(criterion2(outputs, masks))
+        # print(loss1, loss2)
         loss = loss1 + loss2
-
         loss.backward()
         optimizer.step()
         running_loss += loss.item()
@@ -145,18 +152,18 @@ def train_seg(epoch, model, teacher, loader, criterion1, criterion2, optimizer, 
 def train_csc(epoch, model, teacher1, teacher2, loader, criterion1, optimizer, device):
     print('\nEpoch: %d'%epoch)
     model.train()
-    teacher.eval()
+    teacher1.eval()
+    teacher2.eval()
     running_loss = 0.0
     running_acc = 0.0
     total = 0
     for _, (inputs, labels, masks, _) in enumerate(tqdm(loader)):
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
-        outputs = model(inputs)
-       
-        cf1, cf2, cf3, cf4, _ = teacher1(inputs)
-        sf1, sf2, sf3, sf4, _ = teacher2(inputs, cf1, cf2, cf3, cf4)
-        _, _, _, _, outputs = model(inputs, sf1, sf2, sf3, sf4)
+        f1, f2, f3, f4, _ = teacher1(inputs)
+        f1, f2, f3, f4, soutputs = teacher2(inputs, f1, f2, f3, f4)
+        inputs_cat = torch.concat((inputs, soutputs), 1)
+        outputs = model(inputs_cat, f1, f2, f3, f4)
         _, pred = torch.max(outputs, 1)
         total += outputs.size(0)
         running_acc += (pred == labels).sum().item()
@@ -181,7 +188,7 @@ def test(epoch, model, loader, criterion, device, minLoss, spath, mode, submodul
     with torch.no_grad():
         for _, (inputs, labels, masks, index) in enumerate(tqdm(loader)):
             inputs, labels = inputs.to(device), labels.to(device)
-            outputs = model(inputs)
+            _, _, _, _, outputs = model(inputs)
             if type(outputs)==dict:
                 outputs = outputs['fc']
             _, pred = torch.max(outputs, 1)
@@ -194,24 +201,19 @@ def test(epoch, model, loader, criterion, device, minLoss, spath, mode, submodul
         total_acc = 100 * running_acc / total
         print(f'Test epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
         if total_loss < minLoss and epoch!=-1:
-            torch.save(model.state_dict(), os.path.join(spath, f'ACC_{total_acc:.2f}.pth'))
             if mode=='step1':
                 torch.save(model.state_dict(), os.path.join(spath, 's1_model.pth'))
             if mode=='step2':
                 torch.save(model.state_dict(), os.path.join(spath, 's2_model.pth'))
-                if submodule != None:
-                    torch.save(submodule.state_dict(), os.path.join(spath, 's2_submodule.pth'))
             if mode=='step3':
                 torch.save(model.state_dict(), os.path.join(spath, 's3_model.pth'))
-                if submodule != None:
-                    torch.save(submodule.state_dict(), os.path.join(spath, 's3_submodule.pth'))
             else:
                 torch.save(model.state_dict(), os.path.join(spath, 'model.pth'))
             return total_loss
         else:
             return minLoss
 
-def test_seg(epoch, model, teacher, loader, criterion1, criterion2, device, minLoss, spath, mode, submodule=None):
+def test_seg(epoch, model, teacher, loader, criterion1, criterion2, device, minLoss, spath, mode, save=False):
     print('\nEpoch: %d'%epoch)
     model.eval()
     teacher.eval()
@@ -222,26 +224,24 @@ def test_seg(epoch, model, teacher, loader, criterion1, criterion2, device, minL
             inputs, masks = inputs.to(device), masks.to(device)
             f1, f2, f3, f4, _ = teacher(inputs)
             _, _, _, _, outputs = model(inputs, f1, f2, f3, f4)
+            if save==True:
+                for mask in outputs:
+                    mask = mask.detach().cpu().numpy()      
             total += outputs.size(0)
-            loss1= criterion1(outputs, masks)
-            loss2 = criterion2(outputs, masks)
+            loss1= torch.mean(criterion1(outputs, masks))
+            loss2 = torch.mean(criterion2(outputs, masks))
             loss = loss1 + loss2
             running_loss += loss.item()
         total_loss = running_loss / total
         print(f'Test epoch : {epoch} loss : {total_loss}')
 
         if total_loss < minLoss and epoch!=-1:
-            torch.save(model.state_dict(), os.path.join(spath, f'ACC_{total_acc:.2f}.pth'))
             if mode=='step1':
                 torch.save(model.state_dict(), os.path.join(spath, 's1_segmodel.pth'))
             if mode=='step2':
                 torch.save(model.state_dict(), os.path.join(spath, 's2_segmodel.pth'))
-                if submodule != None:
-                    torch.save(submodule.state_dict(), os.path.join(spath, 's2_submodule.pth'))
             if mode=='step3':
                 torch.save(model.state_dict(), os.path.join(spath, 's3_segmodel.pth'))
-                if submodule != None:
-                    torch.save(submodule.state_dict(), os.path.join(spath, 's3_submodule.pth'))
             else:
                 torch.save(model.state_dict(), os.path.join(spath, 'segmodel.pth'))
             return total_loss
@@ -257,8 +257,8 @@ def test_csc(epoch, model, teacher1, teacher2, loader, criterion1, device, minLo
     running_acc = 0.0
     total = 0
     with torch.no_grad():
-        for _, (inputs, _, masks, _) in enumerate(tqdm(loader)):
-            inputs, masks = inputs.to(device), masks.to(device)
+        for _, (inputs, labels, masks, _) in enumerate(tqdm(loader)):
+            inputs, labels = inputs.to(device), labels.to(device)
             f1, f2, f3, f4, _ = teacher1(inputs)
             f1, f2, f3, f4, sout = teacher2(inputs, f1, f2, f3, f4)
             inputs_cat = torch.concat((inputs, sout), 1)
@@ -274,17 +274,12 @@ def test_csc(epoch, model, teacher1, teacher2, loader, criterion1, device, minLo
         print(f'Test epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
         
         if total_loss < minLoss and epoch!=-1:
-            torch.save(model.state_dict(), os.path.join(spath, f'ACC_{total_acc:.2f}.pth'))
             if mode=='step1':
                 torch.save(model.state_dict(), os.path.join(spath, 's1_model.pth'))
             if mode=='step2':
                 torch.save(model.state_dict(), os.path.join(spath, 's2_model.pth'))
-                if submodule != None:
-                    torch.save(submodule.state_dict(), os.path.join(spath, 's2_submodule.pth'))
             if mode=='step3':
                 torch.save(model.state_dict(), os.path.join(spath, 's3_model.pth'))
-                if submodule != None:
-                    torch.save(submodule.state_dict(), os.path.join(spath, 's3_submodule.pth'))
             else:
                 torch.save(model.state_dict(), os.path.join(spath, 'model.pth'))
             return total_loss
@@ -301,7 +296,7 @@ def metric(model, loader, num_classes, device):
     outputs_list = []
     for i, (imgs, labels, _, _) in enumerate(tqdm(loader)):
         imgs, labels = imgs.to(device), labels.to(device)
-        outputs = model(imgs)
+        _, _, _, _, outputs = model(imgs)
         if type(outputs)==dict:
             outputs = outputs['fc']
         _, preds = torch.max(outputs, 1)
@@ -333,6 +328,40 @@ def metric(model, loader, num_classes, device):
     print('mAR : ', mAR)
     print('F1 : ', 2*(mAP * mAR)/(mAP + mAR))
     # print('AUC Score : ', auc_scores)
+
+def csc_metric(model, teacher1, teacher2, loader, num_classes, device):
+    model.eval()
+    teacher1.eval()
+    teacher2.eval()
+    class_AP = dict()
+    class_AR = dict()
+    class_ARoverAP = dict()
+    confusion_matrix = torch.zeros([num_classes, num_classes])
+    labels_list = []
+    outputs_list = []
+    for _, (inputs, labels, masks, _) in enumerate(tqdm(loader)):
+        inputs, labels = inputs.to(device), labels.to(device)
+        f1, f2, f3, f4, _ = teacher1(inputs)
+        f1, f2, f3, f4, sout = teacher2(inputs, f1, f2, f3, f4)
+        inputs_cat = torch.concat((inputs, sout), 1)
+        outputs = model(inputs_cat, f1, f2, f3, f4)
+        _, preds = torch.max(outputs, 1)
+        labels_list.append(np.array(labels.detach().cpu()))
+        outptus = torch.softmax(outputs, dim=-1)
+        outputs_list.append(np.array(outputs.detach().cpu()))
+
+        for j in range(len(labels)):
+            label = labels[j]
+            pred = preds[j]
+            confusion_matrix[label][pred] += 1
+    
+    for i in range(num_classes):
+        TP = confusion_matrix[i][i]
+        FP = torch.sum(confusion_matrix[:,i]) - TP
+        FN = torch.sum(confusion_matrix[i]) - TP
+        class_AP[i] = (100*TP / (TP + FP + 1e-6)).item()
+        class_AR[i] = (100*TP / (TP + FN + 1e-6)).item()
+    print(confusion_matrix)
 
 def point_regression3(epoch, model, s_loader, criterion, criterion2, optimizer, device, feat_size=(7,7)):
     print('\nEpoch: %d'%epoch)
@@ -737,13 +766,7 @@ def select_wrongs(model, loader, device):
     with torch.no_grad():
         for _, (inputs, labels, masks, indexes) in enumerate(tqdm(loader)):
             inputs, labels = inputs.to(device), labels.to(device)
-            outputs = model(inputs)
-            if type(outputs)==dict:
-                f1 = outputs['l1'] # b,256,56,56
-                f2 = outputs['l2'] # b,512,28,28
-                f3 = outputs['l3'] # b,1024,14,14
-                f4 = outputs['l4'] # b,2048,7,7
-                outputs = outputs['fc']
+            _, _, _, _, outputs = model(inputs)
             _, preds = torch.max(outputs, 1)
             for (pred, label, mask, index) in zip(preds, labels, masks, indexes):
                 if pred.item()!=label.item() and torch.max(mask)==1.:
@@ -751,6 +774,10 @@ def select_wrongs(model, loader, device):
                 else:
                     unselects.append(index)
         return selects, unselects
+
+def gen_checklist(selects, unselects):
+    
+    pass
 
 def gen_gaussian_HM(point, size=7, sigma=1., base_heatmap=None):
     if type(size)==int:
