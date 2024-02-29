@@ -344,7 +344,7 @@ class CSC_cls2(torch.nn.Module):
         super(CSC_cls2, self).__init__()
         if model_name=='resnet50':
             backbone = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
-            backbone.conv1 = nn.Conv2d(4, 64, kernel_size=(7,7), stride=(2,2), padding=(3,3), bias=False)
+            backbone.conv1 = nn.Conv2d(3, 64, kernel_size=(7,7), stride=(2,2), padding=(3,3), bias=False)
             backbone.fc = nn.Linear(2048, num_class)
             backbone.avgpool = nn.AdaptiveAvgPool2d((1,1))
             self.modlist = nn.ModuleDict()
@@ -355,39 +355,33 @@ class CSC_cls2(torch.nn.Module):
             self.delta = nn.Parameter(torch.tensor(0.1))
             self.mu = nn.Parameter(torch.tensor(0.1))
         
-    def forward(self, x, f1, f2, f3,f4):
+    def forward(self, x):
         conv1_out = self.modlist['conv1'](x)
         bn1_out = self.modlist['bn1'](conv1_out)
         relu_out = self.modlist['relu'](bn1_out)
         maxpool_out = self.modlist['maxpool'](relu_out)
+        
         l1_out = self.modlist['layer1'](maxpool_out)
-        e1 = torch.sigmoid(f1) * l1_out
-        e1_out = l1_out + e1
-
-        l2_out = self.modlist['layer2'](e1_out)
-        e2 = torch.sigmoid(f2) * l2_out
-        e2_out = l2_out + e2
-
-        l3_out = self.modlist['layer3'](e2_out)
-        e3 = torch.sigmoid(f3) * l3_out
-        e3_out = l3_out + e3
-
-        l4_out = self.modlist['layer4'](e3_out)
-        e4 = torch.sigmoid(f4) * l4_out
-        e4_out = l4_out + e4
+        l2_out = self.modlist['layer2'](l1_out)
+        l3_out = self.modlist['layer3'](l2_out)
+        l4_out = self.modlist['layer4'](l3_out)
 
         #attn
-        b, c, h, w = e4_out.shape
-        att1 = e4_out.reshape([b,c,h*w])
+        b, c, h, w = l4_out.shape
+        att1 = l4_out.reshape([b,c,h*w])
         att2 = torch.permute(att1, (0,2,1))
         att = torch.bmm(att1, att2) # b, c, c
+        att = torch.softmax(att, -1)
+        l4_out = l4_out.reshape([b,c,h*w])
         att_out = torch.bmm(att, l4_out)
-
-        avgpool_out = self.modlist['avgpool']()
+        l4_out = l4_out.reshape([b,c,h,w])
+        att_out = att_out.reshape([b,c,h,w])
+        att_out = self.delta*att_out + l4_out
+        avgpool_out = self.modlist['avgpool'](att_out)
         avgpool_out = avgpool_out.squeeze()
         fc_out = self.modlist['fc'](avgpool_out)
         
-        return fc_out
+        return l1_out, l2_out, l3_out, l4_out, fc_out
 
 
 class CSC_Seg(torch.nn.Module):
@@ -401,17 +395,21 @@ class CSC_Seg(torch.nn.Module):
                 if not name=='' and not name=='fc':
                     self.modlist[name] = getattr(backbone, name)
 
-            self.modlist['layer2'][0].conv1 = nn.Conv2d(257, 128, (1,1), (1,1), bias=False)
-            self.modlist['layer2'][0].downsample[0] = nn.Conv2d(257, 512, (1,1), (2,2), bias=False)
-            self.modlist['layer3'][0].conv1 = nn.Conv2d(513, 256, (1,1), (1,1), bias=False)
-            self.modlist['layer3'][0].downsample[0] = nn.Conv2d(513, 1024, (1,1), (2,2), bias=False)
-            self.modlist['layer4'][0].conv1 = nn.Conv2d(1025, 512, (1,1), (1,1), bias=False)
-            self.modlist['layer4'][0].downsample[0] = nn.Conv2d(1025, 2048, (1,1), (2,2), bias=False)
-            self.modlist['up1'] = SCAttention(2049, 1025)
-            self.modlist['up2'] = SCAttention(1025, 513)
-            self.modlist['up3'] = SCAttention(513, 257)
-            self.modlist['up4'] = SCAttention(257, 64)
+            self.modlist['layer2'][0].conv1 = nn.Conv2d(256, 128, (1,1), (1,1), bias=False)
+            self.modlist['layer2'][0].downsample[0] = nn.Conv2d(256, 512, (1,1), (2,2), bias=False)
+            self.modlist['layer3'][0].conv1 = nn.Conv2d(512, 256, (1,1), (1,1), bias=False)
+            self.modlist['layer3'][0].downsample[0] = nn.Conv2d(512, 1024, (1,1), (2,2), bias=False)
+            self.modlist['layer4'][0].conv1 = nn.Conv2d(1024, 512, (1,1), (1,1), bias=False)
+            self.modlist['layer4'][0].downsample[0] = nn.Conv2d(1024, 2048, (1,1), (2,2), bias=False)
+            self.modlist['up1'] = SCAttention(2048, 1024)
+            self.modlist['up2'] = SCAttention(1024, 512)
+            self.modlist['up3'] = SCAttention(512, 256)
+            self.modlist['up4'] = SCAttention(256, 64)
             self.modlist['up5'] = SCAttentionOut(64, 32)
+            self.modlist['linear1'] = nn.Conv2d(257, 256, (1,1), (1,1), bias=False)
+            self.modlist['linear2'] = nn.Conv2d(513, 512, (1,1), (1,1), bias=False)
+            self.modlist['linear3'] = nn.Conv2d(1025, 1024, (1,1), (1,1), bias=False)
+            self.modlist['linear4'] = nn.Conv2d(2049, 2048, (1,1), (1,1), bias=False)
             self.fc = nn.Conv2d(32, num_class, (1,1))
             self.mu = nn.Parameter(torch.tensor(0.1))
     
@@ -424,22 +422,28 @@ class CSC_Seg(torch.nn.Module):
 
         l1_out = self.modlist['layer1'](maxpool_out)
         e1_out = torch.concat([l1_out, self.mu*torch.sum(f1, 1).unsqueeze(1)], 1)
-        
+        e1_out = self.modlist['linear1'](e1_out)
         l2_out = self.modlist['layer2'](e1_out)
         e2_out = torch.concat([l2_out, self.mu*torch.sum(f2, 1).unsqueeze(1)], 1)
-
+        e2_out = self.modlist['linear2'](e2_out)
         l3_out = self.modlist['layer3'](e2_out)
         e3_out = torch.concat([l3_out, self.mu*torch.sum(f3, 1).unsqueeze(1)], 1)
-
+        e3_out = self.modlist['linear3'](e3_out)
         l4_out = self.modlist['layer4'](e3_out)
         e4_out = torch.concat([l4_out, self.mu*torch.sum(f4, 1).unsqueeze(1)], 1)
-
+        e4_out = self.modlist['linear4'](e4_out)
         #Decoder
         up1_out = self.modlist['up1'](e4_out) + e3_out
         up2_out = self.modlist['up2'](up1_out) + e2_out
         up3_out = self.modlist['up3'](up2_out) + e1_out
         up4_out = self.modlist['up4'](up3_out) + conv1_out
-        up5_out = self.modlist['up5'](up4_out) 
+        up5_out = self.modlist['up5'](up4_out)
+        # up1_out = self.modlist['up1'](e4_out)
+        # up2_out = self.modlist['up2'](up1_out)
+        # up3_out = self.modlist['up3'](up2_out)
+        # up4_out = self.modlist['up4'](up3_out)
+        # up5_out = self.modlist['up5'](up4_out) 
         out = self.fc(up5_out)
         out = torch.sigmoid(out)
+        # return up3_out, up2_out, up1_out, e4_out, out
         return e1_out, e2_out, e3_out, e4_out, out

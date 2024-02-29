@@ -131,7 +131,10 @@ def train_seg(epoch, model, teacher, loader, criterion1, criterion2, optimizer, 
     model.train()
     teacher.eval()
     running_loss = 0.0
+    running_loss1 = 0.0
+    running_loss2 = 0.0
     total = 0
+    alpha = 1.0
     for _, (inputs, _, masks, _) in enumerate(tqdm(loader)):
         inputs, masks = inputs.to(device), masks.to(device)
         optimizer.zero_grad()
@@ -142,39 +145,68 @@ def train_seg(epoch, model, teacher, loader, criterion1, criterion2, optimizer, 
         loss1 = torch.mean(criterion1(outputs, masks))
         loss2 = torch.mean(criterion2(outputs, masks))
         # print(loss1, loss2)
-        loss = loss1 + loss2
+        loss = loss1 + alpha*loss2
         loss.backward()
         optimizer.step()
         running_loss += loss.item()
+        running_loss1 += loss1.item()
+        running_loss2 += loss2.item()
     total_loss = running_loss / total
+    print('loss1 : ', running_loss1 / total)
+    print('loss2 : ', running_loss2 / total)
     print(f'Train epoch : {epoch} loss : {total_loss}')
 
-def train_csc(epoch, model, teacher1, teacher2, loader, criterion1, optimizer, device):
+def train_csc(epoch, model, teacher1, teacher2, loader, criterion1, criterion2, optimizer, device):
     print('\nEpoch: %d'%epoch)
     model.train()
     teacher1.eval()
     teacher2.eval()
     running_loss = 0.0
+    running_loss1 = 0.0
+    running_loss2 = 0.0
     running_acc = 0.0
     total = 0
+    alpha = 0.01
     for _, (inputs, labels, masks, _) in enumerate(tqdm(loader)):
         inputs, labels = inputs.to(device), labels.to(device)
-        optimizer.zero_grad()
         f1, f2, f3, f4, _ = teacher1(inputs)
-        f1, f2, f3, f4, soutputs = teacher2(inputs, f1, f2, f3, f4)
-        inputs_cat = torch.concat((inputs, soutputs), 1)
-        outputs = model(inputs_cat, f1, f2, f3, f4)
+        tf1, tf2, tf3, tf4, _ = teacher2(inputs, f1, f2, f3, f4)
+        f1, f2, f3, f4, outputs = model(inputs)
+        # print(tf1.shape)
+        # print(tf2.shape)
+        # print(tf3.shape)
+        # print(tf4.shape)
+        # loss2 = 4 - torch.mean(criterion2(f1, tf1)) \
+        #             - torch.mean(criterion2(f2, tf2)) \
+        #             - torch.mean(criterion2(f3, tf3)) \
+        #             - torch.mean(criterion2(f4, tf4)) \
+        f1 = F.normalize(f1)
+        f2 = F.normalize(f2)
+        f3 = F.normalize(f3)
+        f4 = F.normalize(f4)
+        tf1 = F.normalize(tf1)
+        tf2 = F.normalize(tf2)
+        tf3 = F.normalize(tf3)
+        tf4 = F.normalize(tf4)
+        # loss2 = criterion2(f1, tf1)+criterion2(f2, tf2)+criterion2(f3, tf3)+criterion2(f4, tf4)
+        loss2 = criterion2(f4, tf4)
+
         _, pred = torch.max(outputs, 1)
         total += outputs.size(0)
         running_acc += (pred == labels).sum().item()
         outputs = outputs.float()
-        loss = criterion1(outputs, labels)
-
+        loss1 = criterion1(outputs, labels)
+        # loss = loss1 + alpha*loss2
+        loss = loss1
+        running_loss += loss.item()
         loss.backward()
         optimizer.step()
-        running_loss += loss.item()
+        running_loss1 += loss1.item()
+        running_loss2 += loss2.item()
     total_loss = running_loss / total
     total_acc = 100 * running_acc / total
+    print('loss1 : ', running_loss1 / total)
+    print('loss2 : ', running_loss2 / total)
     print(f'Train epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
 
 def test(epoch, model, loader, criterion, device, minLoss, spath, mode, submodule=None):
@@ -200,7 +232,7 @@ def test(epoch, model, loader, criterion, device, minLoss, spath, mode, submodul
         total_loss = running_loss / total
         total_acc = 100 * running_acc / total
         print(f'Test epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
-        if total_loss < minLoss and epoch!=-1:
+        if total_loss > minLoss and epoch!=-1:
             if mode=='step1':
                 torch.save(model.state_dict(), os.path.join(spath, 's1_model.pth'))
             if mode=='step2':
@@ -235,7 +267,7 @@ def test_seg(epoch, model, teacher, loader, criterion1, criterion2, device, minL
         total_loss = running_loss / total
         print(f'Test epoch : {epoch} loss : {total_loss}')
 
-        if total_loss < minLoss and epoch!=-1:
+        if total_loss > minLoss and epoch!=-1:
             if mode=='step1':
                 torch.save(model.state_dict(), os.path.join(spath, 's1_segmodel.pth'))
             if mode=='step2':
@@ -248,32 +280,58 @@ def test_seg(epoch, model, teacher, loader, criterion1, criterion2, device, minL
         else:
             return minLoss
 
-def test_csc(epoch, model, teacher1, teacher2, loader, criterion1, device, minLoss, spath, mode, submodule=None):
+def test_csc(epoch, model, teacher1, teacher2, loader, criterion1, criterion2, device, minLoss, spath, mode, submodule=None):
     print('\nEpoch: %d'%epoch)
     model.eval()
     teacher1.eval()
     teacher2.eval()
     running_loss = 0.0
+    running_loss1 = 0.0
+    running_loss2 = 0.0
     running_acc = 0.0
     total = 0
+    alpha = 0.01
     with torch.no_grad():
         for _, (inputs, labels, masks, _) in enumerate(tqdm(loader)):
             inputs, labels = inputs.to(device), labels.to(device)
             f1, f2, f3, f4, _ = teacher1(inputs)
-            f1, f2, f3, f4, sout = teacher2(inputs, f1, f2, f3, f4)
-            inputs_cat = torch.concat((inputs, sout), 1)
-            outputs = model(inputs_cat, f1, f2, f3, f4)
+            tf1, tf2, tf3, tf4, _ = teacher2(inputs, f1, f2, f3, f4)
+            f1, f2, f3, f4, outputs = model(inputs)
+
+            # loss2 = 4 - torch.mean(criterion2(f1, tf1)) \
+            #           - torch.mean(criterion2(f2, tf2)) \
+            #           - torch.mean(criterion2(f3, tf3)) \
+            #           - torch.mean(criterion2(f4, tf4)) \
+            f1 = F.normalize(f1)
+            f2 = F.normalize(f2)
+            f3 = F.normalize(f3)
+            f4 = F.normalize(f4)
+            tf1 = F.normalize(tf1)
+            tf2 = F.normalize(tf2)
+            tf3 = F.normalize(tf3)
+            tf4 = F.normalize(tf4)
+            # loss2 = criterion2(f1, tf1)+criterion2(f2, tf2)+criterion2(f3, tf3)+criterion2(f4, tf4)
+            loss2 = criterion2(f4, tf4)
+
             _, pred = torch.max(outputs, 1)
             total += outputs.size(0)
             running_acc += (pred == labels).sum().item()
             outputs = outputs.float()
-            loss = criterion1(outputs, labels)
+            loss1 = criterion1(outputs, labels)
+            # loss = loss1 + alpha*loss2
+            loss = loss1
             running_loss += loss.item()
+            running_loss1 += loss1.item()
+            running_loss2 += loss2.item()
         total_loss = running_loss / total
+        total_loss1 = running_loss1 / total
+        total_loss2 = running_loss2 / total
         total_acc = 100 * running_acc / total
+        print('loss1 : ', total_loss1.item())
+        print('loss2 : ', total_loss2.item())
         print(f'Test epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
         
-        if total_loss < minLoss and epoch!=-1:
+        if total_loss > minLoss and epoch!=-1:
             if mode=='step1':
                 torch.save(model.state_dict(), os.path.join(spath, 's1_model.pth'))
             if mode=='step2':
@@ -329,10 +387,8 @@ def metric(model, loader, num_classes, device):
     print('F1 : ', 2*(mAP * mAR)/(mAP + mAR))
     # print('AUC Score : ', auc_scores)
 
-def csc_metric(model, teacher1, teacher2, loader, num_classes, device):
+def csc_metric(model, loader, num_classes, device):
     model.eval()
-    teacher1.eval()
-    teacher2.eval()
     class_AP = dict()
     class_AR = dict()
     class_ARoverAP = dict()
@@ -341,10 +397,7 @@ def csc_metric(model, teacher1, teacher2, loader, num_classes, device):
     outputs_list = []
     for _, (inputs, labels, masks, _) in enumerate(tqdm(loader)):
         inputs, labels = inputs.to(device), labels.to(device)
-        f1, f2, f3, f4, _ = teacher1(inputs)
-        f1, f2, f3, f4, sout = teacher2(inputs, f1, f2, f3, f4)
-        inputs_cat = torch.concat((inputs, sout), 1)
-        outputs = model(inputs_cat, f1, f2, f3, f4)
+        _,_,_,_,outputs = model(inputs)
         _, preds = torch.max(outputs, 1)
         labels_list.append(np.array(labels.detach().cpu()))
         outptus = torch.softmax(outputs, dim=-1)

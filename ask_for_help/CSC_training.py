@@ -79,9 +79,9 @@ if args.dataset == 'ISIC2017':
         cls1_model = nn.DataParallel(cls1_model, device_ids=[0,1,2,3])
         # cls1_model = cls1_model.to(device1)
         optimizer1 = optim.Adam(cls1_model.parameters(), args.lr1, betas=[args.beta1, args.beta2], eps=1e-8)
-        criterion1 = nn.CrossEntropyLoss([0.8,0.2])
+        criterion1 = nn.CrossEntropyLoss(torch.tensor([0.5, 0.5]).cuda())
         scheduler1 = optim.lr_scheduler.StepLR(optimizer1, step_size=20, gamma=0.1)
-        s1_minloss = 999
+        s1_minloss = 0
         for i in range(0, args.epoch1):
             train(i, cls1_model, testloader1, criterion1, optimizer1, device1)
             s1_minloss = test(i, cls1_model, testloader3, criterion1, device1, s1_minloss, save_path, mode='step1')
@@ -92,7 +92,7 @@ if args.dataset == 'ISIC2017':
 
         print("STEP 2 ---------------------------------------------------------------------")
         # Select Wrongly Predicted Data
-        selects, unselects = select_wrongs(cls1_model, testloader1, device1)
+        # selects, unselects = select_wrongs(cls1_model, testloader1, device1)
 
         # Save Grad CAMS
         
@@ -108,7 +108,7 @@ if args.dataset == 'ISIC2017':
         scheduler2 = optim.lr_scheduler.StepLR(optimizer2, step_size=20, gamma=0.1)
         criterion2 = ops.sigmoid_focal_loss
         criterion3 = dice_loss
-        s2_minloss = 999
+        s2_minloss = 0
         for i in range(0, args.epoch2):
             train_seg(i, seg_model, cls1_model, testloader1, criterion2, criterion3, optimizer2, device1)
             s2_minloss = test_seg(i, seg_model, cls1_model, testloader3, criterion2, criterion3, device1, s2_minloss, save_path, mode='step2')
@@ -129,13 +129,15 @@ if args.dataset == 'ISIC2017':
         optimizer3 = optim.Adam(cls2_model.parameters(), args.lr3, betas=[args.beta1, args.beta2], eps=1e-8)
         scheduler3 = optim.lr_scheduler.StepLR(optimizer3, step_size=20, gamma=0.1)
         criterion1 = nn.CrossEntropyLoss(torch.tensor([0.8, 0.2]).cuda())
-        s3_minloss = 999
+        # criterion2 = nn.CosineSimilarity(dim=1, eps=1e-6)
+        criterion2 = nn.MSELoss()
+        s3_minloss = 0
         for i in range(0, args.epoch3):
-            train_csc(i, cls2_model, cls1_model, seg_model, testloader1, criterion1, optimizer3, device1)
-            s3_minloss = test_csc(i, cls2_model, cls1_model, seg_model, testloader3, criterion1, device1, s3_minloss, save_path, mode='step3')
+            train_csc(i, cls2_model, cls1_model, seg_model, testloader1, criterion1, criterion2, optimizer3, device1)
+            s3_minloss = test_csc(i, cls2_model, cls1_model, seg_model, testloader3, criterion1, criterion2, device1, s3_minloss, save_path, mode='step3')
             scheduler3.step()
         cls2_model.load_state_dict(torch.load(os.path.join(save_path, 's3_model.pth')))
         # Eval Seg Model
         num_classes=2
-        csc_metric(cls2_model, cls1_model, seg_model, testloader2, num_classes=num_classes, device=device1)
+        csc_metric(cls2_model, testloader2, num_classes=num_classes, device=device1)
         # test_csc(-1, cls2_model, cls1_model, seg_model, testloader2, criterion1, device1, s1_minloss, save_path, mode='step3')
