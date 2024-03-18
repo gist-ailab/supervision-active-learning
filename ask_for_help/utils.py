@@ -18,6 +18,7 @@ import random
 import torchvision.models as models
 import torch.nn as nn
 from torchvision.models.feature_extraction import create_feature_extractor
+import PIL.Image as Image
 
 
 def init_model(device, name='resnet50', num_class=3):
@@ -89,6 +90,13 @@ def roc_scores(labels, output_list, num_class=3):
 def collate_fn(batch):
     return tuple(zip(*batch))
 
+def dice_loss(pred, target, smooth=1e-5):
+    intersection = (pred*target).sum(dim=(2,3))
+    union = pred.sum(dim=(2,3)) + target.sum(dim=(2,3))
+    dice = 2.0 * (intersection+smooth) / (union+smooth)
+    dice_loss = 1.0 - dice
+    return dice_loss
+
 def train(epoch, model, loader, criterion, optimizer, device):
     print('\nEpoch: %d'%epoch)
     if type(model)==dict:
@@ -102,7 +110,7 @@ def train(epoch, model, loader, criterion, optimizer, device):
     for _, (inputs, labels, _, _) in enumerate(tqdm(loader)):
         inputs, labels = inputs.to(device), labels.to(device)
         optimizer.zero_grad()
-        outputs = model(inputs)
+        _, _, _, _, outputs = model(inputs)
         if type(outputs)==dict:
             outputs = outputs['fc']
         
@@ -118,7 +126,90 @@ def train(epoch, model, loader, criterion, optimizer, device):
     total_acc = 100 * running_acc / total
     print(f'Train epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
 
-def test(epoch, model, loader, criterion, device, minLoss, spath, mode):
+def train_seg(epoch, model, teacher, loader, criterion1, criterion2, optimizer, device):
+    print('\nEpoch: %d'%epoch) 
+    model.train()
+    teacher.eval()
+    running_loss = 0.0
+    running_loss1 = 0.0
+    running_loss2 = 0.0
+    total = 0
+    alpha = 1.0
+    for _, (inputs, _, masks, _) in enumerate(tqdm(loader)):
+        inputs, masks = inputs.to(device), masks.to(device)
+        optimizer.zero_grad()
+        f1, f2, f3, f4, _ = teacher(inputs)
+        _, _, _, _, outputs = model(inputs, f1, f2, f3, f4)
+        
+        total += outputs.size(0)
+        loss1 = torch.mean(criterion1(outputs, masks))
+        loss2 = torch.mean(criterion2(outputs, masks))
+        # print(loss1, loss2)
+        loss = loss1 + alpha*loss2
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
+        running_loss1 += loss1.item()
+        running_loss2 += loss2.item()
+    total_loss = running_loss / total
+    print('loss1 : ', running_loss1 / total)
+    print('loss2 : ', running_loss2 / total)
+    print(f'Train epoch : {epoch} loss : {total_loss}')
+
+def train_csc(epoch, model, teacher1, teacher2, loader, criterion1, criterion2, optimizer, device):
+    print('\nEpoch: %d'%epoch)
+    model.train()
+    teacher1.eval()
+    teacher2.eval()
+    running_loss = 0.0
+    running_loss1 = 0.0
+    running_loss2 = 0.0
+    running_acc = 0.0
+    total = 0
+    alpha = 0.01
+    for _, (inputs, labels, masks, _) in enumerate(tqdm(loader)):
+        inputs, labels = inputs.to(device), labels.to(device)
+        f1, f2, f3, f4, _ = teacher1(inputs)
+        tf1, tf2, tf3, tf4, _ = teacher2(inputs, f1, f2, f3, f4)
+        f1, f2, f3, f4, outputs = model(inputs)
+        # print(tf1.shape)
+        # print(tf2.shape)
+        # print(tf3.shape)
+        # print(tf4.shape)
+        # loss2 = 4 - torch.mean(criterion2(f1, tf1)) \
+        #             - torch.mean(criterion2(f2, tf2)) \
+        #             - torch.mean(criterion2(f3, tf3)) \
+        #             - torch.mean(criterion2(f4, tf4)) \
+        f1 = F.normalize(f1)
+        f2 = F.normalize(f2)
+        f3 = F.normalize(f3)
+        f4 = F.normalize(f4)
+        tf1 = F.normalize(tf1)
+        tf2 = F.normalize(tf2)
+        tf3 = F.normalize(tf3)
+        tf4 = F.normalize(tf4)
+        # loss2 = criterion2(f1, tf1)+criterion2(f2, tf2)+criterion2(f3, tf3)+criterion2(f4, tf4)
+        loss2 = criterion2(f4, tf4)
+
+        _, pred = torch.max(outputs, 1)
+        total += outputs.size(0)
+        running_acc += (pred == labels).sum().item()
+        outputs = outputs.float()
+        loss1 = criterion1(outputs, labels)
+        # loss = loss1 + alpha*loss2
+        loss = loss1
+        running_loss += loss.item()
+        loss.backward()
+        optimizer.step()
+        running_loss1 += loss1.item()
+        running_loss2 += loss2.item()
+    total_loss = running_loss / total
+    total_acc = 100 * running_acc / total
+    print('loss1 : ', running_loss1 / total)
+    print('loss2 : ', running_loss2 / total)
+    print(f'Train epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
+
+def test(epoch, model, loader, criterion, device, minLoss, spath, mode, submodule=None):
     print('\nEpoch: %d'%epoch)
     if type(model)==dict:
         model = model['backbone']
@@ -129,7 +220,7 @@ def test(epoch, model, loader, criterion, device, minLoss, spath, mode):
     with torch.no_grad():
         for _, (inputs, labels, masks, index) in enumerate(tqdm(loader)):
             inputs, labels = inputs.to(device), labels.to(device)
-            outputs = model(inputs)
+            _, _, _, _, outputs = model(inputs)
             if type(outputs)==dict:
                 outputs = outputs['fc']
             _, pred = torch.max(outputs, 1)
@@ -141,8 +232,106 @@ def test(epoch, model, loader, criterion, device, minLoss, spath, mode):
         total_loss = running_loss / total
         total_acc = 100 * running_acc / total
         print(f'Test epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
-        if total_loss < minLoss and epoch!=-1:
-            torch.save(model.state_dict(), os.path.join(spath, f'ACC_{total_acc:.2f}.pth'))
+        if total_loss > minLoss and epoch!=-1:
+            if mode=='step1':
+                torch.save(model.state_dict(), os.path.join(spath, 's1_model.pth'))
+            if mode=='step2':
+                torch.save(model.state_dict(), os.path.join(spath, 's2_model.pth'))
+            if mode=='step3':
+                torch.save(model.state_dict(), os.path.join(spath, 's3_model.pth'))
+            else:
+                torch.save(model.state_dict(), os.path.join(spath, 'model.pth'))
+            return total_loss
+        else:
+            return minLoss
+
+def test_seg(epoch, model, teacher, loader, criterion1, criterion2, device, minLoss, spath, mode, save=False):
+    print('\nEpoch: %d'%epoch)
+    model.eval()
+    teacher.eval()
+    running_loss = 0.0
+    total = 0
+    with torch.no_grad():
+        for _, (inputs, _, masks, _) in enumerate(tqdm(loader)):
+            inputs, masks = inputs.to(device), masks.to(device)
+            f1, f2, f3, f4, _ = teacher(inputs)
+            _, _, _, _, outputs = model(inputs, f1, f2, f3, f4)
+            if save==True:
+                for mask in outputs:
+                    mask = mask.detach().cpu().numpy()      
+            total += outputs.size(0)
+            loss1= torch.mean(criterion1(outputs, masks))
+            loss2 = torch.mean(criterion2(outputs, masks))
+            loss = loss1 + loss2
+            running_loss += loss.item()
+        total_loss = running_loss / total
+        print(f'Test epoch : {epoch} loss : {total_loss}')
+
+        if total_loss > minLoss and epoch!=-1:
+            if mode=='step1':
+                torch.save(model.state_dict(), os.path.join(spath, 's1_segmodel.pth'))
+            if mode=='step2':
+                torch.save(model.state_dict(), os.path.join(spath, 's2_segmodel.pth'))
+            if mode=='step3':
+                torch.save(model.state_dict(), os.path.join(spath, 's3_segmodel.pth'))
+            else:
+                torch.save(model.state_dict(), os.path.join(spath, 'segmodel.pth'))
+            return total_loss
+        else:
+            return minLoss
+
+def test_csc(epoch, model, teacher1, teacher2, loader, criterion1, criterion2, device, minLoss, spath, mode, submodule=None):
+    print('\nEpoch: %d'%epoch)
+    model.eval()
+    teacher1.eval()
+    teacher2.eval()
+    running_loss = 0.0
+    running_loss1 = 0.0
+    running_loss2 = 0.0
+    running_acc = 0.0
+    total = 0
+    alpha = 0.01
+    with torch.no_grad():
+        for _, (inputs, labels, masks, _) in enumerate(tqdm(loader)):
+            inputs, labels = inputs.to(device), labels.to(device)
+            f1, f2, f3, f4, _ = teacher1(inputs)
+            tf1, tf2, tf3, tf4, _ = teacher2(inputs, f1, f2, f3, f4)
+            f1, f2, f3, f4, outputs = model(inputs)
+
+            # loss2 = 4 - torch.mean(criterion2(f1, tf1)) \
+            #           - torch.mean(criterion2(f2, tf2)) \
+            #           - torch.mean(criterion2(f3, tf3)) \
+            #           - torch.mean(criterion2(f4, tf4)) \
+            f1 = F.normalize(f1)
+            f2 = F.normalize(f2)
+            f3 = F.normalize(f3)
+            f4 = F.normalize(f4)
+            tf1 = F.normalize(tf1)
+            tf2 = F.normalize(tf2)
+            tf3 = F.normalize(tf3)
+            tf4 = F.normalize(tf4)
+            # loss2 = criterion2(f1, tf1)+criterion2(f2, tf2)+criterion2(f3, tf3)+criterion2(f4, tf4)
+            loss2 = criterion2(f4, tf4)
+
+            _, pred = torch.max(outputs, 1)
+            total += outputs.size(0)
+            running_acc += (pred == labels).sum().item()
+            outputs = outputs.float()
+            loss1 = criterion1(outputs, labels)
+            # loss = loss1 + alpha*loss2
+            loss = loss1
+            running_loss += loss.item()
+            running_loss1 += loss1.item()
+            running_loss2 += loss2.item()
+        total_loss = running_loss / total
+        total_loss1 = running_loss1 / total
+        total_loss2 = running_loss2 / total
+        total_acc = 100 * running_acc / total
+        print('loss1 : ', total_loss1.item())
+        print('loss2 : ', total_loss2.item())
+        print(f'Test epoch : {epoch} loss : {total_loss} Acc : {total_acc}%')
+        
+        if total_loss > minLoss and epoch!=-1:
             if mode=='step1':
                 torch.save(model.state_dict(), os.path.join(spath, 's1_model.pth'))
             if mode=='step2':
@@ -165,7 +354,7 @@ def metric(model, loader, num_classes, device):
     outputs_list = []
     for i, (imgs, labels, _, _) in enumerate(tqdm(loader)):
         imgs, labels = imgs.to(device), labels.to(device)
-        outputs = model(imgs)
+        _, _, _, _, outputs = model(imgs)
         if type(outputs)==dict:
             outputs = outputs['fc']
         _, preds = torch.max(outputs, 1)
@@ -186,9 +375,9 @@ def metric(model, loader, num_classes, device):
         class_AR[i] = (100*TP / (TP + FN + 1e-6)).item()
         # class_ARoverAP[i] = ((TP + FN) / (TP + FP+1e-6)).item()
     # print(labels_list)
-    labels_list = np.concatenate(labels_list, axis=0)
-    outputs_list = np.concatenate(outputs_list, axis=0)
-    auc_scores = roc_scores(labels_list, outputs_list, num_class=3)
+    # labels_list = np.concatenate(labels_list, axis=0)
+    # outputs_list = np.concatenate(outputs_list, axis=0)
+    # auc_scores = roc_scores(labels_list, outputs_list, num_class=3)
     print(confusion_matrix)
     # print(f'Class AP/AR: {class_ARoverAP},\n mAP/mAR : {torch.sum(torch.stack(list(class_ARoverAP.values())))/num_classes}')
     mAP = sum(class_AP.values())/num_classes+1e-6
@@ -196,7 +385,36 @@ def metric(model, loader, num_classes, device):
     print('mAP : ',mAP)
     print('mAR : ', mAR)
     print('F1 : ', 2*(mAP * mAR)/(mAP + mAR))
-    print('AUC Score : ', auc_scores)
+    # print('AUC Score : ', auc_scores)
+
+def csc_metric(model, loader, num_classes, device):
+    model.eval()
+    class_AP = dict()
+    class_AR = dict()
+    class_ARoverAP = dict()
+    confusion_matrix = torch.zeros([num_classes, num_classes])
+    labels_list = []
+    outputs_list = []
+    for _, (inputs, labels, masks, _) in enumerate(tqdm(loader)):
+        inputs, labels = inputs.to(device), labels.to(device)
+        _,_,_,_,outputs = model(inputs)
+        _, preds = torch.max(outputs, 1)
+        labels_list.append(np.array(labels.detach().cpu()))
+        outptus = torch.softmax(outputs, dim=-1)
+        outputs_list.append(np.array(outputs.detach().cpu()))
+
+        for j in range(len(labels)):
+            label = labels[j]
+            pred = preds[j]
+            confusion_matrix[label][pred] += 1
+    
+    for i in range(num_classes):
+        TP = confusion_matrix[i][i]
+        FP = torch.sum(confusion_matrix[:,i]) - TP
+        FN = torch.sum(confusion_matrix[i]) - TP
+        class_AP[i] = (100*TP / (TP + FP + 1e-6)).item()
+        class_AR[i] = (100*TP / (TP + FN + 1e-6)).item()
+    print(confusion_matrix)
 
 def point_regression3(epoch, model, s_loader, criterion, criterion2, optimizer, device, feat_size=(7,7)):
     print('\nEpoch: %d'%epoch)
@@ -307,7 +525,90 @@ def point_regression3(epoch, model, s_loader, criterion, criterion2, optimizer, 
 def train_edge_similarity():
     pass
 
-def wrong_data_correction():
+def train_mask_similarity(epoch, model, segHead, grad_cam, loader, criterion, criterion2, optimizer, optimizer2,device):
+    # 1. for every batch, generate grad_cam
+    # 2. train segment head with grad_cam pseudo GT
+    print('\nEpoch: %d'%epoch)
+    running_loss1 = 0.0
+    running_loss2 = 0.0
+    running_acc = 0.0
+    total = 0
+    count = 0
+    for _, (inputs, labels, masks, _) in enumerate(tqdm(loader)):
+        total += inputs.shape[0]
+        inputs, labels = inputs.to(device), labels.to(device)
+        masks = masks.squeeze().to(device)
+        optimizer.zero_grad()
+        optimizer2.zero_grad()
+
+        # model.eval()
+        # outputs = model(inputs)
+        # outputs = outputs['fc']
+        # _, preds = torch.max(outputs, 1)
+        # heatmap_gt = []
+        # for img, pred in zip(inputs, preds):
+        #     img = img.unsqueeze(0)
+        #     heatmap = grad_cam(img, pred)
+        #     heatmap = np.uint8(255 * heatmap)
+        #     heatmap = Image.fromarray(heatmap).resize((56,56), Image.LANCZOS)
+        #     heatmap = np.array(heatmap)
+        #     bn_heatmap = np.float32(heatmap) / 255
+        #     bn_heatmap[bn_heatmap>0.1] = 1.
+        #     bn_heatmap[bn_heatmap<0.1] = 0.
+        #     if epoch<=1 and count<1:
+        #         with open('/SSDg/yjh/workspace/supervision-active-learning/bn_heatmap.npy', 'wb') as f:
+        #             print(np.max(bn_heatmap))
+        #             print(np.min(bn_heatmap))
+        #             np.save(f, bn_heatmap)
+
+        #     bn_heatmap = torch.tensor(bn_heatmap)
+        #     heatmap_gt.append(bn_heatmap)
+        #     if epoch<=1 and count<1:
+        #         with open('/SSDg/yjh/workspace/supervision-active-learning/heatmap.npy', 'wb') as f:
+        #             print(np.max(heatmap))
+        #             print(np.min(heatmap))
+        #             np.save(f, heatmap)
+        #         count += 1
+        #         print('count',count)
+                
+        # heatmap_gt = torch.stack(heatmap_gt)
+        # heatmap_gt = heatmap_gt.to(device)
+
+        model.train()
+        outputs = model(inputs)
+        f1 = outputs['l1'] # b,256,56,56
+        f2 = outputs['l2'] # b,512,28,28
+        f3 = outputs['l3'] # b,1024,14,14
+        f4 = outputs['l4'] # b,2048,7,7
+        outputs = outputs['fc']
+        _, pred = torch.max(outputs, 1)
+        running_acc += (pred == labels).sum().item()
+        loss1 = criterion(outputs, labels)
+
+        seg_outputs = segHead(f1,f2,f3,f4)
+        if len(seg_outputs.shape)==4:
+            seg_outputs = torch.stack([seg_outputs[i,labels[i],:,:] for i in range(seg_outputs.shape[0])])
+        loss2 = criterion2(seg_outputs, masks)
+        # loss2 = criterion2(seg_outputs, heatmap_gt)
+        loss = loss1 + loss2
+        # loss = loss1
+
+        loss.backward()
+        # if epoch > 20:
+        #     optimizer.step()
+        optimizer.step()
+        optimizer2.step()
+        running_loss1 += loss1.item()
+        running_loss2 += loss2.item()
+
+    total_acc = 100 * running_acc / total
+    print("Total : ", total)
+    print("Acc : ", total_acc)
+    print("Loss 1 : ", running_loss1 / total)
+    print("Loss 2 : ", running_loss2 / total)
+    print("Total Loss : ", (running_loss1+running_loss2) / total)
+
+def wrong_data_correction(epoch, model, s_loader, criterion, optimizer, device, feat_size=(7,7)):
     pass
 
 def semi_point_prediction(epoch, model, s_loader, criterion, criterion2, optimizer, device, feat_size=(7,7), selected=[]):
@@ -518,13 +819,7 @@ def select_wrongs(model, loader, device):
     with torch.no_grad():
         for _, (inputs, labels, masks, indexes) in enumerate(tqdm(loader)):
             inputs, labels = inputs.to(device), labels.to(device)
-            outputs = model(inputs)
-            if type(outputs)==dict:
-                f1 = outputs['l1'] # b,256,56,56
-                f2 = outputs['l2'] # b,512,28,28
-                f3 = outputs['l3'] # b,1024,14,14
-                f4 = outputs['l4'] # b,2048,7,7
-                outputs = outputs['fc']
+            _, _, _, _, outputs = model(inputs)
             _, preds = torch.max(outputs, 1)
             for (pred, label, mask, index) in zip(preds, labels, masks, indexes):
                 if pred.item()!=label.item() and torch.max(mask)==1.:
@@ -532,6 +827,10 @@ def select_wrongs(model, loader, device):
                 else:
                     unselects.append(index)
         return selects, unselects
+
+def gen_checklist(selects, unselects):
+    
+    pass
 
 def gen_gaussian_HM(point, size=7, sigma=1., base_heatmap=None):
     if type(size)==int:

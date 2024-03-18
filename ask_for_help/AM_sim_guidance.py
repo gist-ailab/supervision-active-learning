@@ -13,6 +13,7 @@ import torchvision.datasets as datasets
 from torchvision.models.feature_extraction import create_feature_extractor
 from torch.utils.data import WeightedRandomSampler
 from torch.utils.data import DataLoader, SubsetRandomSampler, Subset, WeightedRandomSampler
+from model import *
 from datasets import *
 from utils import *
 
@@ -21,27 +22,24 @@ parser.add_argument('--dpath1', type=str, default='/ailab_mat/dataset/HAM10000/'
 # parser.add_argument('--dpath2', type=str, default='/home/yunjae_heo/datas/CUB_dataset/datas')
 # parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/CUB200')
 # parser.add_argument('--dataset', type=str, default='CUB200')
-parser.add_argument('--dpath2', type=str, default='/SSDg/yjh/datas/isic2017/augx60_dataset')
-# parser.add_argument('--dpath2', type=str, default='/SSDg/yjh/datas/isic2017/imageFolder')
+# parser.add_argument('--dpath2', type=str, default='/SSDg/yjh/datas/isic2017/augx60_dataset')
+parser.add_argument('--dpath2', type=str, default='/SSDg/yjh/datas/isic2017/imageFolder')
 parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000')
 parser.add_argument('--dataset', type=str, default='ISIC2017')
-parser.add_argument('--pretrained', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000/seed0/ham10000_origin/model.pth')
 parser.add_argument('--epoch1', type=int, default=10)
-parser.add_argument('--epoch2', type=int, default=10)
-parser.add_argument('--epoch3', type=int, default=10)
+parser.add_argument('--epoch2', type=int, default=20)
+parser.add_argument('--epoch3', type=int, default=20)
 parser.add_argument('--batch', type=int, default=32)
-parser.add_argument('--lr1', type=float, default=1e-4)
-parser.add_argument('--lr2', type=float, default=1e-5)
+parser.add_argument('--lr1', type=float, default=1e-5)
+parser.add_argument('--lr2', type=float, default=1e-6)
 parser.add_argument('--lr3', type=float, default=1e-5)
 parser.add_argument('--beta1', type=float, default=0.9)
 parser.add_argument('--beta2', type=float, default=0.999)
 parser.add_argument('--seed', type=int, default=0)
 parser.add_argument('--gpu', type=str, default='7')
-parser.add_argument('--mode', type=str, default='point')
 parser.add_argument('--ratio', type=float, default=1.0)
 parser.add_argument('--note', type=str, default='')
 parser.add_argument('--num_trial', type=int, default=10)
-parser.add_argument('--f_size', type=int, default=7)
 args = parser.parse_args()
 
 if not args.seed==None:
@@ -92,36 +90,48 @@ if args.dataset == 'ISIC2017':
             train(i, model, testloader1, criterion, optimizer, device1)
             s1_minloss = test(i, model, testloader3, criterion, device1, s1_minloss, save_path, mode='step1')
         model.load_state_dict(torch.load(os.path.join(save_path, 's1_model.pth')))
-        num_classes=3
+        num_classes=2
         metric(model, testloader2, num_classes=num_classes, device=device1)
 
-        # Edge Similarity
+        # Mask Similarity
         print("STEP 2 ---------------------------------------------------------------------")
-        for name, para in model.named_paramters():
-            para.requires_grad = False
-            if 'fc' in name:
-                para.requires_grad = True
-        optimizer = optim.Adam(model.fc.parameters(), args.lr2, betas=[args.beta1, args.beta2], eps=1e-8)
+        # for name, para in model.named_parameters():
+        #     para.requires_grad = False
+        #     if 'fc' in name:
+        #         para.requires_grad = True
+        # optimizer = optim.Adam(model.fc.parameters(), args.lr2, betas=[args.beta1, args.beta2], eps=1e-8)
+
+        segHead = seghead(num_classes=2, model_name='resnet50')
+        segHead = segHead.to(device1)
+        criterion2 = nn.BCELoss()
+        # criterion2 = nn.MSELoss()
+        optimizer2 = optim.Adam(segHead.parameters(), args.lr2, betas=[args.beta1, args.beta2], eps=1e-8)
+
+        model.eval()
+        target_layer = model.layer4.get_submodule('2').conv3.eval()
+        grad_cam = GradCAM(model, target_layer)
+        grad_cam.model.eval()
 
         s2_minloss = 999
         for i in range(0, args.epoch2):
-            train_edge_similarity()
-            s2_minloss = test(i, model, testloader3, criterion, device1, s2_minloss, save_path, mode='step2')
+            # train_edge_similarity()
+            train_mask_similarity(i, model, segHead, grad_cam, testloader1, criterion, criterion2, optimizer, optimizer2, device1)
+            s2_minloss = test(i, model, testloader3, criterion, device1, s2_minloss, save_path, mode='step2', submodule=segHead)
         model.load_state_dict(torch.load(os.path.join(save_path, 's2_model.pth')))
-        num_classes=3
+        num_classes=2
         metric(model, testloader2, num_classes=num_classes, device=device1)
 
         # Wrong Data Correction
         print("STEP 3 ---------------------------------------------------------------------")
-        for para in model.parameters():
-            para.requires_grad = True
-        optimizer = optim.Adam(model.parameters(), args.lr3, betas=[args.beta1, args.beta2], eps=1e-8)
-        selects, unselects = select_wrongs(model, testloader1, device1)
+        # for para in model.parameters():
+        #     para.requires_grad = True
+        # optimizer = optim.Adam(model.parameters(), args.lr3, betas=[args.beta1, args.beta2], eps=1e-8)
+        # selects, unselects = select_wrongs(model, testloader1, device1)
         
-        s3_minloss = 999
-        for i in range(0, args.epoch2):
-            wrong_data_correction()
-            s3_minloss = test(i, model, testloader3, criterion, device1, s3_minloss, save_path, mode='step3')
-        model.load_state_dict(torch.load(os.path.join(save_path, 's3_model.pth')))
-        num_classes=3
-        metric(model, testloader2, num_classes=num_classes, device=device1)
+        # s3_minloss = 999
+        # for i in range(0, args.epoch2):
+        #     wrong_data_correction()
+        #     s3_minloss = test(i, model, testloader3, criterion, device1, s3_minloss, save_path, mode='step3')
+        # model.load_state_dict(torch.load(os.path.join(save_path, 's3_model.pth')))
+        # num_classes=3
+        # metric(model, testloader2, num_classes=num_classes, device=device1)
