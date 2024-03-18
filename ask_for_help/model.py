@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.models as models
 from torchvision.models.feature_extraction import create_feature_extractor
+import numpy as np
 
 class PPM(torch.nn.Module):
     def __init__(self, num_class=200, model_name='resnet50'):
@@ -122,4 +123,327 @@ class CHConcat(torch.nn.Module):
 class ICICNet(torch.nn.Module): # intra class consistency and inter class discrimination
     def __init__(self, num_class, model_name):
         super(ICICNet, self).__init__()
+
+class ConvBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ConvBlock, self).__init__()
+        # self.conv = nn.Sequential(
+        #     nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+        #     nn.BatchNorm2d(out_channels),
+        #     nn.ReLU(inplace=True),
+        #     nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+        #     nn.BatchNorm2d(out_channels),
+        #     nn.ReLU(inplace=True)
+        # )
+        self.conv = nn.Sequential(
+            nn.BatchNorm2d(in_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+        )
+
+    def forward(self, x):
+        return self.conv(x)
+
+class UpConv(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(UpConv, self).__init__()
+        self.up = nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2)
+
+    def forward(self, x):
+        return self.up(x)
+
+class scSE(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(scSE, self).__init__()
+        self.avgpool = nn.AdaptiveAvgPool2d((1,1))
+        self.conv1 = nn.Conv2d(in_channels, in_channels, (1,1))
+        self.conv2 = nn.Conv2d(in_channels, in_channels//16, (1,1))
+        self.conv3 = nn.Conv2d(in_channels//16,in_channels, (1,1))
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        branch1 = self.sigmoid(self.conv3(self.relu(self.conv2(self.avgpool(x)))))
+        branch2 = self.sigmoid(self.conv1(x))
+        att1 = branch1*x
+        att2 = branch2*x
+        out = att1+att2
+        return out
+
+class SCAttention(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(SCAttention, self).__init__()
+        self.up = nn.ConvTranspose2d(in_channels, in_channels, kernel_size=2, stride=2)
+        self.scSE1 = scSE(in_channels, in_channels)
+        self.scSE2 = scSE(out_channels, out_channels)
+        self.conv1 = nn.Conv2d(in_channels, in_channels, (3,3), padding=1)
+        self.bn1 = nn.BatchNorm2d(in_channels)
+        self.conv2 = nn.Conv2d(in_channels, out_channels, (3,3), padding=1)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout2d(p=0.2)
+    
+    def forward(self, x):
+        out = self.up(x)
+        out = self.scSE1(out)
+        out = self.relu(self.bn1(self.conv1(out)))
+        out = self.relu(self.bn2(self.conv2(out)))
+        out = self.scSE2(out)
+        out = self.dropout(out)
+        return out
+
+class SCAttentionOut(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(SCAttentionOut, self).__init__()
+        self.up = nn.ConvTranspose2d(in_channels, in_channels, kernel_size=2, stride=2)
+        self.scSE1 = scSE(out_channels, out_channels)
+        self.conv1 = nn.Conv2d(in_channels, in_channels, (3,3), padding=1)
+        self.bn1 = nn.BatchNorm2d(in_channels)
+        self.conv2 = nn.Conv2d(in_channels, out_channels, (3,3), padding=1)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout2d(p=0.2)
+    
+    def forward(self, x):
+        out = self.up(x)
+        out = self.relu(self.bn1(self.conv1(out)))
+        out = self.relu(self.bn2(self.conv2(out)))
+        out = self.scSE1(out)
+        out = self.dropout(out)
+        return out
+
+
+class seghead(torch.nn.Module):
+    def __init__(self, num_classes, model_name):
+        super(seghead, self).__init__()
+        if model_name == 'resnet50':
+            self.up1 = UpConv(2048, 1024)
+            self.conv1 = ConvBlock(2048, 1024)
+            self.up2 = UpConv(1024, 512)
+            self.conv2 = ConvBlock(1024, 512)
+            self.up3 = UpConv(512, 256)
+            self.conv3 = ConvBlock(512, 256)
+
+            self.final = nn.Conv2d(256, num_classes, kernel_size=1)
+            if num_classes == 1: self.normalize = nn.Sigmoid()
+            else: self.normalize = nn.Softmax(dim=1)
+
+    def forward(self, d1, d2, d3, d4):
+        # x : input batch
+        # d1 : outputs of backbone layer1 : 256, 56, 56
+        # d2 : outputs of backbone layer2 : 512, 28, 28
+        # d3 : outputs of backbone layer3 : 1024, 14, 14
+        # d4 : outputs of backbone layer4 : 2048, 7, 7
+
+        # 디코더 + 스킵 연결
+        u1 = self.up1(d4) # 1024, 14, 14
+        u11 = torch.cat((u1, d3), dim=1) # 2048, 14, 14
+        u1 = self.conv1(u11) + u1 # 1024, 14, 14 
+
+        u2 = self.up2(u1)
+        u22 = torch.cat((u2, d2), dim=1)
+        u2 = self.conv2(u22) + u2
+
+        u3 = self.up3(u2)
+        u33 = torch.cat((u3, d1), dim=1)
+        u3 = self.conv3(u33) + u3
+
+        out = self.final(u3)
+        out = self.normalize(out)
+        out = out.squeeze()
+        # 최종 출력
+        return out
+
+class GradCAM:
+    def __init__(self, model, target_layer):
+        self.model = model
+        self.target_layer = target_layer
+        self.gradients = None
+        self.activation = None
+
+        self.target_layer.register_forward_hook(self.save_activation)
+        self.target_layer.register_full_backward_hook(self.save_gradients)
+        self.loss = nn.CrossEntropyLoss()
+
+    def save_activation(self, module, input, output):
+        self.activation = output
+
+    def save_gradients(self, module, input_grad, output_grad):
+        self.gradients = output_grad[0]
+
+    def __call__(self, x, class_idx):
+        _,_,_,_,output = self.model(x)
+        # print(output.shape)
+        if type(output)==dict:
+            output = output['fc']
+        # class_loss = output[0, class_idx]
+        class_loss = self.loss(output[class_idx])
+        class_loss.backward()
+
+        pooled_gradients = torch.mean(self.gradients, dim=[0, 2, 3])
+        activation = self.activation[0]
+        for i in range(activation.shape[0]):
+            activation[i] *= pooled_gradients[i]
+
+        heatmap = torch.mean(activation, dim=0).cpu()
+        try:
+            heatmap = np.maximum(heatmap, 0)
+        except:
+            heatmap = np.maximum(heatmap.detach().cpu(), 0)
+        heatmap /= torch.max(heatmap)
+
+        return heatmap
+
+class CSC_cls1(torch.nn.Module):
+    def __init__(self, num_class, model_name='resnet50'):
+        super(CSC_cls1, self).__init__()
+        if model_name=='resnet50':
+            backbone = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+            backbone.fc = nn.Linear(2048, num_class)
+            backbone.avgpool = nn.AdaptiveAvgPool2d((1,1))
+            self.modlist = nn.ModuleDict()
+            for name, para in backbone.named_modules():
+                name = name.split('.')[0]
+                if not name=='':
+                    self.modlist[name] = getattr(backbone, name)
+            self.delta = nn.Parameter(torch.tensor(0.1))
         
+    def forward(self, x):
+        conv1_out = self.modlist['conv1'](x)
+        bn1_out = self.modlist['bn1'](conv1_out)
+        relu_out = self.modlist['relu'](bn1_out)
+        maxpool_out = self.modlist['maxpool'](relu_out)
+        l1_out = self.modlist['layer1'](maxpool_out)
+        l2_out = self.modlist['layer2'](l1_out)
+        l3_out = self.modlist['layer3'](l2_out)
+        l4_out = self.modlist['layer4'](l3_out)
+
+        #attn
+        b, c, h, w = l4_out.shape
+        att1 = l4_out.reshape([b,c,h*w])
+        att2 = torch.permute(att1, (0,2,1))
+        att = torch.bmm(att1, att2) # b, c, c
+        att = torch.softmax(att, -1)
+        l4_out = l4_out.reshape([b,c,h*w])
+        att_out = torch.bmm(att, l4_out)
+        l4_out = l4_out.reshape([b,c,h,w])
+        att_out = att_out.reshape([b,c,h,w])
+        att_out = self.delta*att_out + l4_out
+        avgpool_out = self.modlist['avgpool'](att_out)
+
+        # avgpool_out = self.modlist['avgpool'](l4_out)
+        avgpool_out = avgpool_out.squeeze()
+        fc_out = self.modlist['fc'](avgpool_out)
+        return l1_out, l2_out, l3_out, l4_out, fc_out
+
+class CSC_cls2(torch.nn.Module):
+    def __init__(self, num_class, model_name='resnet50'):
+        super(CSC_cls2, self).__init__()
+        if model_name=='resnet50':
+            backbone = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+            backbone.conv1 = nn.Conv2d(3, 64, kernel_size=(7,7), stride=(2,2), padding=(3,3), bias=False)
+            backbone.fc = nn.Linear(2048, num_class)
+            backbone.avgpool = nn.AdaptiveAvgPool2d((1,1))
+            self.modlist = nn.ModuleDict()
+            for name, para in backbone.named_modules():
+                name = name.split('.')[0]
+                if not name=='':
+                    self.modlist[name] = getattr(backbone, name)
+            self.delta = nn.Parameter(torch.tensor(0.1))
+            self.mu = nn.Parameter(torch.tensor(0.1))
+        
+    def forward(self, x):
+        conv1_out = self.modlist['conv1'](x)
+        bn1_out = self.modlist['bn1'](conv1_out)
+        relu_out = self.modlist['relu'](bn1_out)
+        maxpool_out = self.modlist['maxpool'](relu_out)
+        
+        l1_out = self.modlist['layer1'](maxpool_out)
+        l2_out = self.modlist['layer2'](l1_out)
+        l3_out = self.modlist['layer3'](l2_out)
+        l4_out = self.modlist['layer4'](l3_out)
+
+        #attn
+        b, c, h, w = l4_out.shape
+        att1 = l4_out.reshape([b,c,h*w])
+        att2 = torch.permute(att1, (0,2,1))
+        att = torch.bmm(att1, att2) # b, c, c
+        att = torch.softmax(att, -1)
+        l4_out = l4_out.reshape([b,c,h*w])
+        att_out = torch.bmm(att, l4_out)
+        l4_out = l4_out.reshape([b,c,h,w])
+        att_out = att_out.reshape([b,c,h,w])
+        att_out = self.delta*att_out + l4_out
+        avgpool_out = self.modlist['avgpool'](att_out)
+        avgpool_out = avgpool_out.squeeze()
+        fc_out = self.modlist['fc'](avgpool_out)
+        
+        return l1_out, l2_out, l3_out, l4_out, fc_out
+
+
+class CSC_Seg(torch.nn.Module):
+    def __init__(self, num_class=1, model_name='resnet50'):
+        super(CSC_Seg, self).__init__()
+        if model_name=='resnet50':
+            backbone = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
+            self.modlist = nn.ModuleDict()
+            for name, para in backbone.named_modules():
+                name = name.split('.')[0]
+                if not name=='' and not name=='fc':
+                    self.modlist[name] = getattr(backbone, name)
+
+            self.modlist['layer2'][0].conv1 = nn.Conv2d(256, 128, (1,1), (1,1), bias=False)
+            self.modlist['layer2'][0].downsample[0] = nn.Conv2d(256, 512, (1,1), (2,2), bias=False)
+            self.modlist['layer3'][0].conv1 = nn.Conv2d(512, 256, (1,1), (1,1), bias=False)
+            self.modlist['layer3'][0].downsample[0] = nn.Conv2d(512, 1024, (1,1), (2,2), bias=False)
+            self.modlist['layer4'][0].conv1 = nn.Conv2d(1024, 512, (1,1), (1,1), bias=False)
+            self.modlist['layer4'][0].downsample[0] = nn.Conv2d(1024, 2048, (1,1), (2,2), bias=False)
+            self.modlist['up1'] = SCAttention(2048, 1024)
+            self.modlist['up2'] = SCAttention(1024, 512)
+            self.modlist['up3'] = SCAttention(512, 256)
+            self.modlist['up4'] = SCAttention(256, 64)
+            self.modlist['up5'] = SCAttentionOut(64, 32)
+            self.modlist['linear1'] = nn.Conv2d(257, 256, (1,1), (1,1), bias=False)
+            self.modlist['linear2'] = nn.Conv2d(513, 512, (1,1), (1,1), bias=False)
+            self.modlist['linear3'] = nn.Conv2d(1025, 1024, (1,1), (1,1), bias=False)
+            self.modlist['linear4'] = nn.Conv2d(2049, 2048, (1,1), (1,1), bias=False)
+            self.fc = nn.Conv2d(32, num_class, (1,1))
+            self.mu = nn.Parameter(torch.tensor(0.1))
+    
+    def forward(self, x, f1, f2, f3, f4):
+        #Encoder
+        conv1_out = self.modlist['conv1'](x)
+        bn1_out = self.modlist['bn1'](conv1_out)
+        relu_out = self.modlist['relu'](bn1_out)
+        maxpool_out = self.modlist['maxpool'](relu_out)
+
+        l1_out = self.modlist['layer1'](maxpool_out)
+        e1_out = torch.concat([l1_out, self.mu*torch.sum(f1, 1).unsqueeze(1)], 1)
+        e1_out = self.modlist['linear1'](e1_out)
+        l2_out = self.modlist['layer2'](e1_out)
+        e2_out = torch.concat([l2_out, self.mu*torch.sum(f2, 1).unsqueeze(1)], 1)
+        e2_out = self.modlist['linear2'](e2_out)
+        l3_out = self.modlist['layer3'](e2_out)
+        e3_out = torch.concat([l3_out, self.mu*torch.sum(f3, 1).unsqueeze(1)], 1)
+        e3_out = self.modlist['linear3'](e3_out)
+        l4_out = self.modlist['layer4'](e3_out)
+        e4_out = torch.concat([l4_out, self.mu*torch.sum(f4, 1).unsqueeze(1)], 1)
+        e4_out = self.modlist['linear4'](e4_out)
+        #Decoder
+        up1_out = self.modlist['up1'](e4_out) + e3_out
+        up2_out = self.modlist['up2'](up1_out) + e2_out
+        up3_out = self.modlist['up3'](up2_out) + e1_out
+        up4_out = self.modlist['up4'](up3_out) + conv1_out
+        up5_out = self.modlist['up5'](up4_out)
+        # up1_out = self.modlist['up1'](e4_out)
+        # up2_out = self.modlist['up2'](up1_out)
+        # up3_out = self.modlist['up3'](up2_out)
+        # up4_out = self.modlist['up4'](up3_out)
+        # up5_out = self.modlist['up5'](up4_out) 
+        out = self.fc(up5_out)
+        out = torch.sigmoid(out)
+        # return up3_out, up2_out, up1_out, e4_out, out
+        return e1_out, e2_out, e3_out, e4_out, out

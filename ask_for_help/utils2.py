@@ -246,7 +246,7 @@ def select_wrongs(model, loader, device):
     unselects = []
     model.eval()
     with torch.no_grad():
-        for _, (inputs, labels, _, indexes) in enumerate(tqdm(loader)):
+        for _, (inputs, labels, masks, indexes) in enumerate(tqdm(loader)):
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
             if type(outputs)==dict:
@@ -256,8 +256,8 @@ def select_wrongs(model, loader, device):
                 f4 = outputs['l4'] # b,2048,7,7
                 outputs = outputs['fc']
             _, preds = torch.max(outputs, 1)
-            for (pred, label, index) in zip(preds, labels, indexes):
-                if pred.item()!=label.item():
+            for (pred, label, mask, index) in zip(preds, labels, masks, indexes):
+                if pred.item()!=label.item() and torch.max(mask)!=0:
                     selects.append(index)
                 else:
                     unselects.append(index)

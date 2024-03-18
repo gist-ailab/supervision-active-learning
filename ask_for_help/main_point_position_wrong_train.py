@@ -22,13 +22,14 @@ parser.add_argument('--dpath1', type=str, default='/ailab_mat/dataset/HAM10000/'
 # parser.add_argument('--dpath2', type=str, default='/home/yunjae_heo/datas/CUB_dataset/datas')
 # parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/CUB200')
 # parser.add_argument('--dataset', type=str, default='CUB200')
-parser.add_argument('--dpath2', type=str, default='/SSDg/yjh/datas/isic2017/imageFolder')
+parser.add_argument('--dpath2', type=str, default='/SSDg/yjh/datas/isic2017/augx60_dataset')
+# parser.add_argument('--dpath2', type=str, default='/SSDg/yjh/datas/isic2017/imageFolder')
 parser.add_argument('--spath', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000')
 parser.add_argument('--dataset', type=str, default='ISIC2017')
 parser.add_argument('--pretrained', type=str, default='/ailab_mat/personal/heo_yunjae/supervision_active_learning/ask_for_help/parameters/HAM10000/seed0/ham10000_origin/model.pth')
-parser.add_argument('--epoch1', type=int, default=60)
-parser.add_argument('--epoch2', type=int, default=60)
-parser.add_argument('--batch', type=int, default=28)
+parser.add_argument('--epoch1', type=int, default=20)
+parser.add_argument('--epoch2', type=int, default=20)
+parser.add_argument('--batch', type=int, default=32)
 parser.add_argument('--lr', type=float, default=1e-4)
 parser.add_argument('--lr2', type=float, default=1e-4)
 parser.add_argument('--beta1', type=float, default=0.9)
@@ -119,7 +120,7 @@ if args.mode=='point':
     for trial in range(args.num_trial):
         print('Trial : ', trial)
         if args.dataset == 'ISIC2017':
-            model = init_model(device=device1)
+            model = init_model(device=device1, name='resnet50')
         if args.dataset == 'CUB200':
             model = PPM(num_class=200)
             model = model.to(device1)
@@ -136,18 +137,14 @@ if args.mode=='point':
         model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
         # test(-1, model, testloader2, criterion, device1, MinLoss, save_path)
         if args.dataset == 'CUB200': num_classes=200
-        if args.dataset == 'ISIC2017': num_classes=2
+        if args.dataset == 'ISIC2017': num_classes=3
         metric(model, testloader2, num_classes=num_classes, device=device1)
 
         selects, unselects = select_wrongs(model, testloader1, device1)
-        # selectset = Subset(testset1, selects)
-        # unselectset = Subset(testset1, unselects)
-        # selectloader = DataLoader(selectset, args.batch, shuffle=True, num_workers=4)
-        # unselectloader = DataLoader(unselectset, args.batch, shuffle=True, num_workers=4)
-        # selects = [i for i in range(2000)]
 
-        model = init_model(device=device1)
-        optimizer = optim.Adam(model.parameters(), args.lr, betas=[args.beta1, args.beta2], eps=1e-8)
+        model = init_model(device=device1, name='resnet18')
+        optimizer = optim.SGD(model.parameters(), args.lr)
+        # optimizer = optim.Adam(model.parameters(), args.lr, betas=[args.beta1, args.beta2], eps=1e-8)
         criterion2 = nn.BCELoss()
 
         MinLoss = 999
@@ -157,5 +154,5 @@ if args.mode=='point':
         model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
         # test(-1, model, testloader2, criterion, device1, MinLoss, save_path)
         if args.dataset == 'CUB200': num_classes=200
-        if args.dataset == 'ISIC2017': num_classes=2
+        if args.dataset == 'ISIC2017': num_classes=3
         metric(model, testloader2, num_classes=num_classes, device=device1)
