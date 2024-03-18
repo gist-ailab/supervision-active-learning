@@ -92,7 +92,7 @@ if args.dataset == 'ISIC2017':
 
         print("STEP 2 ---------------------------------------------------------------------")
         # Select Wrongly Predicted Data
-        # selects, unselects = select_wrongs(cls1_model, testloader1, device1)
+        selects, unselects = select_wrongs(cls1_model, testloader1, device1)
 
         # Save Grad CAMS
         
